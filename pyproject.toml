@@ -20,4 +20,4 @@ dev = ["pytest>=8"]
 where = ["src"]
 
 [project.urls]
-Repository = "https://github.com/jarredparrett/verismill"
+Repository = "https://github.com/jarredparrett/verismill-lean"

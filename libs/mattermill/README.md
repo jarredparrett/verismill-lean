@@ -142,7 +142,7 @@ Minnesota's algebra under a different heading.
 
 0.12.0 — API is unstable and will move while the foundry's realism climb
 drives new emitters. Semver discipline starts at 0.2. The library is
-developed inside [verismill](https://github.com/jarredparrett/verismill)
+developed inside [verismill](https://github.com/jarredparrett/verismill-lean)
 as its rendering platform; it has no verismill dependencies.
 
 **0.12.0 trimmed the library to what the climb actually uses.** The general

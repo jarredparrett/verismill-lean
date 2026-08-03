@@ -174,11 +174,11 @@ once — for the 1642 bill. It's the strongest thing here and the least proven.
 ## Quick start
 
 ```bash
-pip install "verismill @ git+https://github.com/jarredparrett/verismill"
+pip install "verismill @ git+https://github.com/jarredparrett/verismill-lean"
 ```
 
 ```bash
-pip install "mattermill @ git+https://github.com/jarredparrett/verismill#subdirectory=libs/mattermill"
+pip install "mattermill @ git+https://github.com/jarredparrett/verismill-lean#subdirectory=libs/mattermill"
 ```
 
 Git URLs rather than PyPI, deliberately: the API is still moving between

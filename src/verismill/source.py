@@ -7,7 +7,8 @@ inventory, wrong edition, invented blocks). So sourcing is first-class:
 
     fetch/register -> provenance -> contract -> proposed markers -> emitter
 
-Layout on disk (per template, under .foundry/reference/<name>/):
+Standalone sourcing defaults to the operator's data directory, under
+`references/<name>/`:
 
     source.pdf        the reference form
     provenance.json   url or local origin, sha256, bytes, retrieval date
@@ -29,7 +30,7 @@ Run:
     PYTHONPATH=src .venv/bin/python -m verismill.source \
         --name acord125 --url https://example.com/acord-125.pdf
     PYTHONPATH=src .venv/bin/python -m verismill.source \
-        --name acord126 --file "~/Downloads/Acord126 GL.pdf"
+        --name acord126 --file "/absolute/path/Acord126 GL.pdf"
 """
 
 from __future__ import annotations
@@ -42,11 +43,14 @@ import re
 import urllib.request
 from pathlib import Path
 
-DEFAULT_OUT = Path(".foundry/reference")
+from .paths import user_data_root
+
+DEFAULT_OUT = user_data_root() / "references"
 
 _FORM_MARK = re.compile(r"[A-Z]+ \d+ \(\d{4}/\d{2}\)")
 _PAGE_MARK = re.compile(r"Page \d+ of \d+")
 _SECTION = re.compile(r"^[0-9A-Z][0-9A-Z &/,'#().:%$-]{2,70}$")
+_SOURCE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{1,79}$")
 
 
 def _sha256(data: bytes) -> str:
@@ -69,6 +73,8 @@ def register_local(path: str | Path, name: str, out_root: Path = DEFAULT_OUT) ->
 
 
 def _register(data: bytes, name: str, out_root: Path, origin: dict) -> Path:
+    if not _SOURCE_NAME.fullmatch(name):
+        raise ValueError("reference name must be a 2-80 character lowercase slug")
     if not data.startswith(b"%PDF"):
         raise ValueError(f"{name}: not a PDF (starts {data[:8]!r})")
     dest = out_root / name

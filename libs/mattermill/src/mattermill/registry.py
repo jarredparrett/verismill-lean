@@ -9,7 +9,7 @@ seven places for the same mistake.
     from mattermill import registry
     pdf, manifest = registry.emit("bill_of_sale", pins={"vessel_name": "Unity"})
 
-The facade owns three things the caller should never have to:
+The facade owns two things the caller should never have to:
 
 1. **Metadata, era-correctly.** A document whose era predates PDF (1993) is a
    scan, so its metadata describes the *scanner* and its `created` is the
@@ -19,15 +19,14 @@ The facade owns three things the caller should never have to:
 2. **Provenance.** Every emit returns a manifest — class, version, pins, seed,
    sha256 — which is the reproduction recipe. Same manifest in, same bytes
    out, on any machine, offline.
-3. **Standing, stated.** `list_classes()` reports the round that judged each
-   class and what it scored. A class that has never been judged says so. This
-   is the only honest answer to "is it realistic?", and it is why the registry
-   is the right place to ask.
+
+Realism standing is deliberately absent. It belongs to the user's verified
+verismill experiments, whose research, rubric, models, and acceptance rules
+cannot be represented honestly by a package-level constant.
 
 Registered here are *document classes* — things a person asks for by name.
-The primitives they are built from (`pdf`, `xlsx`, `eml`, `longdoc`,
-`invoice`, `ledger`) stay importable and out of the registry: they are how
-you build a class, not a thing anyone requests.
+Shared PDF, scan, asset, and inspection machinery stays out of the catalog;
+it supports classes but is not itself a user-requestable document.
 """
 
 from __future__ import annotations
@@ -37,7 +36,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from . import (__version__, acord, acord130, bill_of_sale, diligence, lease_nj,
+from . import (__version__, acord, acord130, bill_of_sale, deed_nj, diligence, lease_nj,
                nj_birth, vintage)
 
 # ---------------------------------------------------------------------------
@@ -74,7 +73,6 @@ class DocumentClass:
     era: str
     substrate: str                 # what the artifact physically IS
     pins: dict[str, str]
-    standing: dict[str, Any]
     sample: Callable[..., dict]
     render: Callable[..., bytes]
     profiles: list = field(default_factory=list)
@@ -86,7 +84,6 @@ class DocumentClass:
         return {"name": self.name, "summary": self.summary,
                 "module": self.module, "era": self.era,
                 "substrate": self.substrate, "pins": dict(self.pins),
-                "standing": dict(self.standing),
                 "mattermill": __version__}
 
 
@@ -99,10 +96,7 @@ def register(cls: DocumentClass) -> DocumentClass:
 
 
 # ---------------------------------------------------------------------------
-# The catalog. `standing` is the class's realism claim and nothing more: the
-# round that judged it, how, and what it scored. Never edit a score here that
-# a round did not produce — the foundry ledger is the evidence, this is the
-# label on the tin.
+# The static catalog. Measurements live in user-owned experiment bundles.
 # ---------------------------------------------------------------------------
 
 register(DocumentClass(
@@ -113,12 +107,6 @@ register(DocumentClass(
     era="contemporary",
     substrate="born-digital vector PDF",
     pins={"insured": "the named insured (str); sampled if omitted"},
-    standing={"rung": "external review", "round": 4, "mode": "external "
-              "commercial-lines underwriter review", "score": 62,
-              "dimensions": {"financial_operational": 96,
-                             "cross_field_consistency": 43},
-              "open": ["registry identifiers (NAIC, class codes) unsourced — "
-                       "they will not survive lookup"]},
     sample=acord.sample_126, render=acord.render_126,
     profiles=OFFICE, capture_window=(2026, 2026),
 ))
@@ -139,25 +127,6 @@ register(DocumentClass(
           "car_wash": "bool", "el_limits": "(accident, disease policy, disease each)",
           "annual_payroll": "int, station staff before officer remuneration",
           "year": "int"},
-    standing={"rung": "unreviewed", "round": None,
-              "mode": "never judged", "score": None, "dimensions": {},
-              "open": ["never judged. The 2017/05 layout and the Minnesota "
-                       "rating rules are both sourced, but no blind round has "
-                       "measured whether that adds up to an artifact an "
-                       "underwriter believes",
-                       "voluntary carrier rate pages are not public, so rates "
-                       "are derived from MWCIA's assigned-risk schedule by a "
-                       "sampled multiplier rather than filed values",
-                       "NAIC company code and National Producer Number are "
-                       "left blank on purpose — unsourced identifiers that "
-                       "would invite lookup",
-                       "only Appendix A Table 1 (Type A carriers) of the "
-                       "premium discount table was transcribed, through "
-                       "$30,645 of standard premium; beyond it the emitter "
-                       "raises rather than guessing",
-                       "one location, one state. Multi-state risks need the "
-                       "second page-2 sheet the form provides for, and each "
-                       "added state needs its own rating world sourced"]},
     sample=acord130.sample_130, render=acord130.render_130,
     profiles=OFFICE, capture_window=(2026, 2026),
     takes_pins=True, takes_canon=True,
@@ -174,37 +143,6 @@ register(DocumentClass(
           "price_pounds": "int", "former": "bool — carries a superseded name",
           "sale_month": "int 1-12", "sale_day": "int",
           "salutation": "bool — deed-poll form B rather than 'This bill made'"},
-    standing={"rung": "blind pairwise", "round": 9,
-              "mode": "blind pairwise + paired absolute, k=3, manuscripts "
-                      "specialist, against a 1613 English bargain-and-sale",
-              "score": 43,
-              "real_counterpart_score": 94,
-              "discrimination_accuracy": 1.0,
-              "dimensions": {"financial_operational": 68,
-                             "cross_field_consistency": 72,
-                             "drafting_realism": 61,
-                             "procedural_correctness": 47,
-                             "external_verifiability": 40,
-                             "visual_formatting": 25,
-                             "transaction_provenance": 21,
-                             "forensic_authenticity": 10},
-              "open": ["all 3 judges identified it as synthetic at 0.97-0.99; "
-                       "the objective is judge accuracy at chance (0.5) and it "
-                       "is at 1.0",
-                       "forensic_authenticity 10 against the real exemplar's 97 "
-                       "— the dominant remaining gap. The hand is set type, not "
-                       "a secretary hand; the seal is a flat disc on a tag that "
-                       "passes through no plica",
-                       "declares itself a bill (deed poll, cut plain) but "
-                       "carries an indented head copied from an INDENTURE "
-                       "exemplar — a feature implemented without checking it "
-                       "belonged to this instrument class",
-                       "the defeasance voids the bill rather than the "
-                       "obligation, so the seller performing destroys the "
-                       "buyer's title",
-                       "text is fully expanded with no abbreviations or "
-                       "suspensions — a 19th-century transcription convention "
-                       "inherited from the textual source"]},
     sample=bill_of_sale.sample_bill, render=bill_of_sale.render_bill,
     profiles=PLANETARY, capture_window=(2016, 2021), takes_pins=True,
 ))
@@ -218,12 +156,6 @@ register(DocumentClass(
     era="1993",
     substrate="scan of a production set",
     pins={},
-    standing={"rung": "external review", "round": 6, "mode": "external "
-              "London-market underwriter review", "score": 61,
-              "dimensions": {}, "open": [
-                  "market-practice reference data unsourced",
-                  "following markets are named without syndicate numbers on "
-                  "purpose — a real number invites lookup"]},
     sample=diligence.sample_packet, render=diligence.render_packet,
     profiles=SHEETFED, capture_window=(2015, 2020), takes_canon=True,
 ))
@@ -236,9 +168,6 @@ register(DocumentClass(
     era="1987",
     substrate="scan of a typewritten original",
     pins={},
-    standing={"rung": "external review", "round": 5, "mode": "external "
-              "family-law review", "score": None, "dimensions": {},
-              "open": ["reviewed qualitatively; no numeric score recorded"]},
     sample=vintage.sample_msa, render=vintage.render_msa,
     profiles=SHEETFED, capture_window=(2016, 2021), takes_canon=True,
 ))
@@ -246,7 +175,7 @@ register(DocumentClass(
 register(DocumentClass(
     name="lease_nj",
     summary="A New Jersey / Hoboken management-company residential lease at a "
-            "named address (The Jordan, 1200 Clinton St, Apt 221) — a governed "
+            "fictional, caller-replaceable address — a governed "
             "fill on the Rent Security Deposit Act, the NJ disclosure battery, "
             "and Hoboken Rent Control (Ch. 155), as a property manager's system "
             "would export it.",
@@ -261,60 +190,25 @@ register(DocumentClass(
           "building_year": "int — drives lead disclosure and the § 155-4 recital",
           "rent_controlled": "bool", "term_start": "ISO date",
           "pets": "bool", "seniors": "bool"},
-    standing={"rung": "absolute r3", "round": 3,
-              "mode": "blind absolute review under judges.protocol v0.2.0 "
-                      "(min+veto, glance pass, k=3 lensed), NJ landlord-tenant "
-                      "attorney persona, no provenance",
-              "score": 66,                 # min+veto headline (overall_min 66)
-              "discrimination_accuracy": 1.0,
-              "aggregation": "min+veto (a strong dimension cannot buy back a "
-                             "failed disqualifier)",
-              "disqualifiers_failed": {"executed_consistently": "0/3",
-                                       "signature_is_a_hand": "0/3",
-                                       "no_impossible_identifier": "0/3"},
-              "dimensions": {"financial_operational": 94,
-                             "cross_field_consistency": 93,
-                             "drafting_realism": 90,
-                             "visual_formatting": 88,
-                             "procedural_correctness": 87,
-                             "forensic_authenticity": 72,
-                             "external_verifiability": 69},
-              "coherence_profile_mean": 85,
-              "trajectory": "60 (v0.1 mean) -> 24 (v0.2.0 min+veto) -> 66 "
-                            "(v0.2.0, e-sign build)",
-              "open": ["the e-sign lane CLOSED the round-2 forensic "
-                       "disqualifiers: one execution convention (adopted "
-                       "e-signatures spelling each name, every initial slot "
-                       "filled, a certificate of completion under NJ UETA). "
-                       "executed_consistently + signature_is_a_hand now pass "
-                       "0/3; forensic 30->72; those tells are RESOLVED",
-                       "still synthetic 3/3 but only at 0.6 confidence "
-                       "('genuinely close'), on SOFTER tells now: the e-sign "
-                       "vendor is fictional (a real one would be brand "
-                       "impersonation — an unavoidable tradeoff), and the "
-                       "penny-perfect coherence across 13 pages reads as "
-                       "machine-generated (inherent to a coherent-by-"
-                       "construction emitter)",
-                       "the non-conformant-UUID tell a round-3 judge caught is "
-                       "harvest-fixed (IDs are now RFC-4122 v4) and UNSCORED "
-                       "pending round 4",
-                       "forensic: the lease is signed but every per-page initials "
-                       "block and disclosure acknowledgment line is blank, and "
-                       "the two signatures read as one rendering — the state of a "
-                       "specimen, not a closed file (round-1 tell, harvest-fixed)",
-                       "the FEMA flood-zone designation for 1200 Clinton St is "
-                       "NOT looked up: the flood notice answers on the "
-                       "landlord's actual knowledge (Hoboken is a flood hazard "
-                       "area; NFIP coverage available) rather than printing a "
-                       "zone code that would invite a lookup it cannot survive",
-                       "no NJ-Realtors form edition mark is stamped — that "
-                       "copyrighted form was not sourced, and an invented "
-                       "edition number is a worse tell than its absence",
-                       "the management company, its rules exhibit and the "
-                       "deposit institution are plausible but invented; no real "
-                       "Hoboken managing agent or bank is named"]},
     sample=lease_nj.sample_lease, render=lease_nj.render_lease,
     profiles=OFFICE, capture_window=(2024, 2026),
+    takes_pins=True, takes_canon=True,
+))
+
+register(DocumentClass(
+    name="deed_nj_1997",
+    summary="A 1997 Madison, New Jersey residential bargain-and-sale deed "
+            "with covenant against grantor's acts, as a county scan.",
+    module="mattermill.deed_nj",
+    era="1997",
+    substrate="scan of an executed paper deed package",
+    pins={"execution_date": "ISO date in 1997",
+          "consideration": "whole-dollar transfer consideration",
+          "grantor_married": "bool — grantor capacity",
+          "new_construction": "bool — period RTF exemption",
+          "partial_exemption": "none | senior | blind | disabled"},
+    sample=deed_nj.sample_deed, render=deed_nj.render_deed,
+    profiles=SHEETFED, capture_window=(2010, 2016),
     takes_pins=True, takes_canon=True,
 ))
 
@@ -330,21 +224,6 @@ register(DocumentClass(
           "attendant": "physician | midwife | none",
           "special_return": "bool — the assessor filled the blank himself",
           "return_lag_days": "int, the statute allows thirty"},
-    standing={"rung": "unreviewed", "round": None,
-              "mode": "never judged", "score": None, "dimensions": {},
-              "open": ["THE OBJECT IS NOT SOURCED. The field inventory comes "
-                       "from section 2 of the registry act, but no facsimile "
-                       "of the 1878-1900 blank was obtainable (microfilm, "
-                       "in-person only), so sheet size, rule work, layout and "
-                       "the printer's imprint are invented",
-                       "expect visual_formatting and forensic_authenticity to "
-                       "score badly — round 8 measured this exact shape "
-                       "(sourced words, unsourced object) at 5",
-                       "entries are set in an italic face, not a clerk's hand",
-                       "coverage was poor in this era: at least 100,000 New "
-                       "Jersey births before 1920 went unrecorded, so a "
-                       "confident return for an arbitrary person is itself a "
-                       "claim"]},
     sample=nj_birth.sample_birth, render=nj_birth.render_birth,
     profiles=PLANETARY, capture_window=(2014, 2020),
     takes_pins=True, takes_canon=True,
@@ -356,8 +235,7 @@ register(DocumentClass(
 # ---------------------------------------------------------------------------
 
 def list_classes() -> list[dict]:
-    """Every class a caller can request, with its standing. Sorted by name so
-    the answer is stable."""
+    """Static capabilities for every requestable class, sorted by name."""
     return [CLASSES[n].describe() for n in sorted(CLASSES)]
 
 
@@ -421,11 +299,10 @@ def emit(name: str, *, pins: dict | None = None, seed: int = 0,
         "module": cls.module,
         "seed": seed,
         "pins": dict(pins) if pins else {},
-        "canon": "caller-supplied" if canon is not None else "default",
+        "canon": dict(canon) if canon is not None else None,
         "metadata": meta,
         "sha256": "sha256:" + hashlib.sha256(data).hexdigest(),
         "bytes": len(data),
         "ground_truth": [defect] if defect else [],
-        "standing": dict(cls.standing),
     }
     return data, manifest

@@ -1,12 +1,11 @@
-"""lease_nj capability tests — each maps to a lease.* requirement in
-.foundry/spec.yaml.
+"""lease_nj capability tests — each maps to a lease.* requirement.
 
 Two contracts are under test. The clause anatomy is the Mode B contract from
 the DCA Truth in Renting guide (p.6), transcribed in lease_nj.DOC_MARKERS. The
 jurisdiction contract stacks New Jersey (Rent Security Deposit Act; the
 disclosure battery) and Hoboken (Municipal Code Ch. 155 — the 5%/CPI cap, the
-§ 155-4 disclosure statement), sourced in .foundry/reference/ and synthesised
-in .foundry/reference/lease_nj/contract.md.
+§ 155-4 disclosure statement), captured in the experiment's sourced-reference
+contract.
 """
 
 from __future__ import annotations

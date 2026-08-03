@@ -156,8 +156,8 @@ class Atlas:
 
     def repair_asserted(self) -> list[dict]:
         """Tells whose fix is asserted but not yet verified by a non-fixer
-        round. These belong in the class's OPEN standing until a round resolves
-        them — a harvest moves the code, not the rung."""
+        round. They remain open in the experiment until a round resolves them;
+        a harvest moves the code, not the measurement."""
         return [t for t in self.tells
                 if t.get("repair_status") == "repair_asserted"]
 

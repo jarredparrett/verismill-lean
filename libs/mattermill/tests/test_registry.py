@@ -1,7 +1,8 @@
-"""registry capability tests — each maps to a registry.* requirement in
-foundry/spec/foundry.yaml. What is under test is whether a caller who knows
-only a class name can get a correct artifact: the facade owns metadata,
-provenance and standing so that no caller has to."""
+"""The registry exposes static capabilities and reproducible emit recipes.
+
+Experiment evidence and measured standing deliberately belong to verismill's
+user-owned experiment store, not to this package catalog.
+"""
 
 from __future__ import annotations
 
@@ -22,34 +23,18 @@ def _meta(pdf: bytes) -> dict:
             for k in ("Producer", "Creator")}
 
 
-def test_catalog_reports_standing():
-    """registry.standing-reported: every class states the round that judged it
-    and what it scored. A catalog that answered "realistic: yes" would be the
-    one claim this project exists to refuse."""
+def test_catalog_reports_only_static_capabilities():
+    """registry.catalog-contract: package metadata contains capabilities, not
+    a copied experiment result that can drift away from its evidence."""
     classes = registry.list_classes()
     assert classes, "the catalog is empty"
     for c in classes:
-        st = c["standing"]
-        assert st["rung"], f"{c['name']} claims no rung"
-        assert "round" in st, f"{c['name']} names no round"
         assert c["substrate"], f"{c['name']} does not say what it physically is"
+        assert c["mattermill"], f"{c['name']} does not name its package version"
+        assert "standing" not in c, (
+            f"{c['name']} copied user experiment state into the package catalog")
         blob = json.dumps(c).lower()
         assert "realistic" not in blob, f"{c['name']} calls itself realistic"
-    # The catalog must publish the BAD number, not just a rung. Pinned to a
-    # structure rather than to one round's values, so a later round updates
-    # the score without rewriting the test — but the worst dimension has to
-    # be reachable, because that is the number a caller needs.
-    bos = next(c for c in classes if c["name"] == "bill_of_sale")
-    dims = bos["standing"]["dimensions"]
-    assert dims, "a judged class must publish its dimension scores"
-    worst = min(dims, key=dims.__getitem__)
-    assert dims[worst] < 50, (
-        "bill_of_sale's weakest dimension is its headline limitation; a "
-        "catalog that hid it would be making the one claim this project "
-        "exists to refuse")
-    assert bos["standing"]["open"], "known limitations must be stated"
-    assert any(worst in note for note in bos["standing"]["open"]), (
-        f"the weakest dimension ({worst}) must be named in the open notes")
 
 
 def test_emit_is_deterministic():
@@ -108,14 +93,26 @@ def test_manifest_is_a_reproduction_recipe():
     pdf, man = registry.emit("bill_of_sale", seed=1642,
                              pins={"vessel_name": "Unity", "share": 4})
     for key in ("class", "mattermill", "module", "seed", "pins", "metadata",
-                "sha256", "bytes", "ground_truth", "standing"):
+                "sha256", "bytes", "ground_truth"):
         assert key in man, f"manifest missing {key}"
+    assert "standing" not in man, "standing must derive from its experiment"
     assert man["pins"] == {"vessel_name": "Unity", "share": 4}
     assert man["ground_truth"] == []
 
     again, _ = registry.emit(man["class"], seed=man["seed"],
                              pins=man["pins"], metadata=man["metadata"])
     assert again == pdf, "the manifest does not reproduce its own artifact"
+
+
+def test_manifest_preserves_caller_canon():
+    """registry.manifest-canon: a canon-driven artifact records the exact
+    caller world required to reproduce it, never a placeholder description."""
+    canon = dict(registry.lease_nj.DEFAULT_CANON,
+                 building_name="Harbor Loom",
+                 street="9 Fictional Quay",
+                 landlord_entity="Fictional Quay Owner, LLC")
+    _pdf, manifest = registry.emit("lease_nj", seed=9, canon=canon)
+    assert manifest["canon"] == canon
 
 
 def test_planted_defect_is_recorded_as_ground_truth():
@@ -133,7 +130,7 @@ def test_planted_defect_is_recorded_as_ground_truth():
 
 
 def test_unknown_class_and_bad_pins_fail_loudly():
-    """registry.standing-reported: the catalog is the contract. An unknown
+    """registry.catalog-contract: the catalog is the contract. An unknown
     class names the alternatives; pins a class does not accept are refused
     rather than silently dropped."""
     with pytest.raises(KeyError, match="unknown document class"):
@@ -160,12 +157,12 @@ def test_cli_serves_a_request(tmp_path):
     assert man["pins"] == {"vessel_name": "Hopewell", "share": 8,
                            "salutation": False}, "pin types not coerced"
     assert man["artifact"] == "bill.pdf"
-    st = registry.CLASSES["bill_of_sale"].standing
-    assert st["rung"] in r.stdout and str(st["round"]) in r.stdout, (
-        "standing — the rung and the round that earned it — must be reported "
-        "to the caller, not just written in a doc they may never read")
+    assert "standing" not in man
+    assert "standing" not in r.stdout.lower()
 
     lst = subprocess.run([sys.executable, "-m", "mattermill.cli", "classes",
                           "--json"], capture_output=True, text=True)
     assert lst.returncode == 0, lst.stderr
-    assert {c["name"] for c in json.loads(lst.stdout)} == set(registry.CLASSES)
+    catalog = json.loads(lst.stdout)
+    assert {c["name"] for c in catalog} == set(registry.CLASSES)
+    assert all("standing" not in c for c in catalog)

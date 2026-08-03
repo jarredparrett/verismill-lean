@@ -48,6 +48,14 @@ def test_rejects_non_pdf(tmp_path):
         source.register_local(bogus, "bogus", out_root=tmp_path)
 
 
+def test_reference_name_cannot_escape_output_root(tmp_path, demo):
+    """sourcing.name-boundary: an operator-supplied source name is a slug,
+    never a path capable of writing outside the reference directory."""
+    with pytest.raises(ValueError, match="lowercase slug"):
+        source.register_local(demo, "../outside", out_root=tmp_path / "references")
+    assert not (tmp_path / "outside").exists()
+
+
 def test_contract_extraction(tmp_path, demo):
     """sourcing.contract-extraction: per-page text lines, page count, size."""
     source.register_local(demo, "demo126", out_root=tmp_path)

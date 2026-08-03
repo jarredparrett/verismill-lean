@@ -1,4 +1,4 @@
-"""Tests for the reportlab-backed legal renderer (docforge/legalpdf.py)."""
+"""Tests for mattermill's reportlab-backed legal PDF renderer."""
 
 from __future__ import annotations
 

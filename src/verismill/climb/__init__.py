@@ -1,3 +1,3 @@
-"""climb: atlas, blind judge harness, orchestrator — the L1 loop machinery."""
+"""Evidence atlas and blind-judge scorers used by the experiment facade."""
 
-from . import atlas, judges, orchestrator  # noqa: F401
+from . import atlas, judges  # noqa: F401

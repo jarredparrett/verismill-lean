@@ -26,12 +26,11 @@ The era decides the delivery. An 1878-1900 document cannot be a vector PDF
 (the format shipped in 1993), so the artifact is a scan of a printed blank
 filled in by hand.
 
-HONEST LIMIT, declared rather than discovered: the OBJECT is not sourced. The
+HONEST LIMIT: the OBJECT is not sourced. The
 1878-1900 forms are microfilm, in-person use only, and no facsimile was
 obtained. Sheet size, rule work, the blank's layout and the printer's imprint
-are invented. Round 8 measured this exact shape — sourced words, unsourced
-object — at forensic authenticity 5. This class therefore ships `unreviewed`
-and says so in the registry.
+are invented. This is a static implementation limitation; any measured effect
+belongs to the operator's experiment evidence, not to this module.
 """
 
 from __future__ import annotations

@@ -5,8 +5,8 @@
 
 mattermill renders *document classes* — the things a person asks for by name:
 an ACORD 126 or 130, a 1642 bill of sale engrossed on a membrane, a 1987
-marital settlement typed on pleading paper, a multi-instrument diligence
-production, an 1878 New Jersey birth return. It renders them
+marital settlement typed on pleading paper, a 1997 New Jersey deed, a
+multi-instrument diligence production, or an 1878 New Jersey birth return. It renders them
 **byte-identically for a given seed**, so a pipeline can regenerate, diff, and
 verify every byte.
 
@@ -42,7 +42,7 @@ the era the document claims:
 ```python
 from mattermill import registry
 
-registry.list_classes()          # catalog, each with the round that judged it
+registry.list_classes()          # static capability catalog
 pdf, manifest = registry.emit("bill_of_sale", seed=1642,
                               pins={"vessel_name": "Hopewell", "share": 8})
 ```
@@ -56,14 +56,15 @@ python -m mattermill.cli lens --file bill.pdf
 
 The manifest is the reproduction recipe — class, version, pins, seed, sha256 —
 and it carries the ground truth of anything `defect=` planted, so an artifact
-can be used as a scorable fixture. Standing comes back with every emit: a class
-reports the round that judged it, never that it is realistic.
+can be used as a scorable fixture. Experiment rubrics, model receipts, scores,
+and standing belong to the user's verismill data store; they are not package
+metadata and are not copied into emitted manifests.
 
 ## The classes, and what each is made of
 
 ```python
-from mattermill import (acord, acord130, bill_of_sale, diligence, lease_nj,
-                        nj_birth, vintage)
+from mattermill import (acord, acord130, bill_of_sale, deed_nj, diligence,
+                        lease_nj, nj_birth, vintage)
 import random
 
 # ACORD 126 (2009/08, Commercial General Liability Section) — template-
@@ -120,6 +121,11 @@ lease = lease_nj.render_lease(lease_nj.sample_lease(random.Random(221)),
                               metadata=...)
 bad   = lease_nj.render_lease(m, metadata=...,
                               defect={"security_deposit": 5460.0})  # over the cap
+
+# A 1997 Morris County bargain-and-sale deed package, rendered as a later
+# county scan with an era-correct deed, acknowledgment, and RTF-1 statement.
+deed = deed_nj.render_deed(deed_nj.sample_deed(random.Random(1997)),
+                           metadata=...)
 ```
 
 Under them sit four shared primitives, and nothing else:
@@ -142,8 +148,9 @@ Under them sit four shared primitives, and nothing else:
   never called at render time.
 
 Canon-driven classes (`underwriting_file`, `msa_1987`, `nj_birth`, `acord130`,
-`lease_nj`) take a `canon=` world. The shipped default is invented; supply your own and
-every place, party and production number in the document follows from it.
+`lease_nj`, `deed_nj_1997`) take a `canon=` world. The shipped default is
+invented; supply your own and every place, party and production number in the
+document follows from it.
 
 Where a class is bound to a jurisdiction, the jurisdiction is a **gate, not a
 label**. `acord130` ships one sourced rating world — Minnesota's, from MWCIA —
@@ -154,19 +161,9 @@ Minnesota's algebra under a different heading.
 
 ## Status
 
-0.13.3 — API is unstable and will move while the foundry's realism climb
-drives new emitters. Semver discipline starts at 0.2. The library is
+0.14.5 — API is unstable before 1.0 and will move while the foundry's realism
+climb drives new emitters. The library is
 developed inside [verismill](https://github.com/jarredparrett/verismill-lean)
 as its rendering platform; it has no verismill dependencies.
-
-**0.12.0 trimmed the library to what the climb actually uses.** The general
-document forge it grew from — a standalone PDF writer, an xlsx writer with
-live formulas, an eml threader, GL/trial-balance/AP exports, invoices, and the
-long-form compositors — is gone, along with the lens inspectors for the
-formats it wrote. None of it was reachable from a document class, and
-verismill's `worldgen` renders its own md/csv/eml without importing mattermill
-at all. `openpyxl` left the dependency list with it. If a future class needs
-books that reconcile, it comes back through `add-emitter` with a requirement a
-test can fail.
 
 Tests: `python -m pytest tests/` from this directory.

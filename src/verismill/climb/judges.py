@@ -1,6 +1,6 @@
 """Judge trial machinery: blind pairwise assembly + verdict scoring.
 
-The module assembles trials (deterministically, from the orchestrator's
+The module assembles trials (deterministically, from the experiment's
 seed vault), builds the judge brief, and scores returned verdicts. It never
 judges — the judge is a blind agent invoked outside this module, seeing
 only the trial_trees/ directory and the cover story.
@@ -8,7 +8,7 @@ only the trial_trees/ directory and the cover story.
 Blindness protocol: each trial copies sampled files into
 trial_trees/<trial_id>/{left,right}/. Which side is synthetic is decided by
 the trial seed and recorded in the (builder- and judge-hidden) answer key
-the orchestrator keeps. The brief contains no provenance.
+the experiment coordinator keeps. The brief contains no provenance.
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ def assemble_trial(trial_root: Path, *, real_src: Path, synth_src: Path | None,
     """Build one blind pairwise trial. synth_src None ⇒ real-vs-real control
     (real_src_b provides the second real sample). Returns the answer key.
 
-    The answer key is written OUTSIDE the trial tree (key_dir, orchestrator-
+    The answer key is written OUTSIDE the trial tree (key_dir, coordinator-
     only): the trial tree contains just left/, right/, brief.md — nothing a
     judge can peek at."""
     rng = random.Random(trial_seed)
@@ -114,7 +114,7 @@ def assemble_trial(trial_root: Path, *, real_src: Path, synth_src: Path | None,
 
 
 # ===========================================================================
-# Absolute review — judges.protocol v0.2.0 (.foundry/spec.yaml judges.protocol)
+# Absolute review — judges.protocol v0.2.0
 #
 # Formalised after lease_nj round 1, where a human found in one glance what a
 # k=3 blind round + a self-graded harvest under-resolved. Each construct below

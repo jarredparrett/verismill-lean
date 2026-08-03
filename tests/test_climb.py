@@ -6,8 +6,7 @@ import json
 
 import pytest
 
-from verismill import trace
-from verismill.climb import atlas, judges, orchestrator
+from verismill.climb import atlas, judges
 
 
 # -- atlas lifecycle -----------------------------------------------------------
@@ -122,55 +121,6 @@ def test_score_batch(trees, tmp_path):
     scores = judges.score_batch(keys, verdicts)
     assert scores["synth_vs_real_accuracy"] == pytest.approx(2 / 3)
     assert scores["trials_scored"] == 3
-
-
-# -- orchestrator --------------------------------------------------------------------
-
-
-def _orch(tmp_path):
-    bus = trace.TraceBus(tmp_path / "bus" / "events.jsonl", clock=lambda: 1_700_000_000.0)
-    return orchestrator.Orchestrator(tmp_path / "scores", bus), bus
-
-
-def test_accept_only_on_improvement(tmp_path):
-    orch, bus = _orch(tmp_path)
-    keys = [{"trial_id": f"t{i}", "mode": "synth_vs_real", "synthetic_side": "left"}
-            for i in range(4)]
-    def verdicts(n_correct):
-        v = {f"t{i}": {"pick": "left"} for i in range(n_correct)}
-        v.update({f"t{i}": {"pick": "right"} for i in range(n_correct, 4)})
-        return v
-    r1 = orch.on_judge_batch(keys=keys, verdicts=verdicts(4), spec_version="v1")
-    assert not r1["accepted"]                       # accuracy 1.0, no improvement over 1.0
-    r2 = orch.on_judge_batch(keys=keys, verdicts=verdicts(3), spec_version="v2")
-    assert r2["accepted"]                           # 0.75 < 1.0 - margin
-    r3 = orch.on_judge_batch(keys=keys, verdicts=verdicts(3), spec_version="v3")
-    assert not r3["accepted"]                       # no improvement over new best
-    r4 = orch.on_judge_batch(keys=keys, verdicts=verdicts(2), spec_version="v4")
-    assert r4["accepted"]                           # 0.5 < 0.75 - margin
-    events = trace.TraceBus.read(bus.path)
-    types = [e["event_type"] for e in events]
-    assert types.count("accept") == 2 and types.count("reject") == 2
-    assert orch.state["best_accuracy"] == 0.5
-    assert trace.TraceBus.verify(bus.path)
-
-
-def test_stall_detection_after_five_rejects(tmp_path):
-    orch, bus = _orch(tmp_path)
-    keys = [{"trial_id": "t", "mode": "synth_vs_real", "synthetic_side": "left"}]
-    for _ in range(5):
-        orch.on_judge_batch(keys=keys, verdicts={"t": {"pick": "left"}}, spec_version="v")
-    events = trace.TraceBus.read(bus.path)
-    assert any(e["event_type"] == "stall" for e in events)
-
-
-def test_checkpoint_written_on_accept(tmp_path):
-    orch, _ = _orch(tmp_path)
-    keys = [{"trial_id": "t", "mode": "synth_vs_real", "synthetic_side": "left"}]
-    orch.on_judge_batch(keys=keys, verdicts={"t": {"pick": "right"}}, spec_version="v9")
-    cps = list((tmp_path / "scores" / "checkpoints").iterdir())
-    assert len(cps) == 1
-    assert (cps[0] / "spec_version.txt").read_text().strip() == "v9"
 
 
 # -- judges.protocol v0.2.0 (absolute review, min+veto) ----------------------

@@ -1,8 +1,8 @@
-"""docforge CLI — thin wrapper over the library for agent use.
+"""mattermill CLI — emit and inspect deterministic document classes.
 
 Document classes — the things a person asks for by name:
 
-    python -m mattermill.cli classes                   # catalog + standing
+    python -m mattermill.cli classes                   # static capabilities
     python -m mattermill.cli emit --class bill_of_sale --seed 1642 \
         --out bill.pdf --pin vessel_name=Hopewell --pin share=8
 
@@ -27,27 +27,17 @@ from pathlib import Path
 from . import __version__, lens, registry
 
 def cmd_classes(args) -> None:
-    """The catalog, with what each class is allowed to claim."""
+    """The static document-class catalog."""
     classes = registry.list_classes()
     if args.json:
         json.dump(classes, sys.stdout, indent=2)
         print()
         return
     for c in classes:
-        st = c["standing"]
-        score = f"{st['score']}/100" if st.get("score") else "no numeric score"
         print(f"\n{c['name']}  ({c['era']} · {c['substrate']})")
         print(f"  {c['summary']}")
-        print(f"  standing: {st['rung']}, round {st['round']} — {score}")
-        if st.get("dimensions"):
-            dims = ", ".join(f"{k} {v}" for k, v in st["dimensions"].items())
-            print(f"  dimensions: {dims}")
-        for note in st.get("open", []):
-            print(f"  open: {note}")
         if c["pins"]:
             print(f"  pins: {', '.join(sorted(c['pins']))}")
-    print("\nStanding is what a round measured, not a claim. A class reports "
-          "the round that\njudged it; nothing here is described as realistic.")
 
 
 def _parse_pin(spec: str):
@@ -90,12 +80,8 @@ def cmd_emit(args) -> None:
     Path(str(out) + ".manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n")
 
-    st = manifest["standing"]
     print(f"{args.cls}: {out} ({len(data)} bytes, seed={args.seed})")
     print(f"  manifest: {out}.manifest.json")
-    print(f"  standing: {st['rung']}, round {st['round']}")
-    for note in st.get("open", []):
-        print(f"  open: {note}")
 
 
 def cmd_lens(args) -> None:
@@ -108,12 +94,12 @@ def cmd_lens(args) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(prog="docforge", description=__doc__,
+    ap = argparse.ArgumentParser(prog="mattermill", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--version", action="version", version=f"docforge {__version__}")
+    ap.add_argument("--version", action="version", version=f"mattermill {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("classes", help="list document classes and standing")
+    p = sub.add_parser("classes", help="list static document-class capabilities")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_classes)
 

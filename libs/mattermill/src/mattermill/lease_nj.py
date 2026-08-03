@@ -1,7 +1,7 @@
 """lease_nj: a New Jersey / Hoboken management-company residential lease, seeded.
 
 A contemporary born-digital lease as a property manager's system would export
-it — for a named building (The Jordan, 1200 Clinton Street, Apt 221, Hoboken).
+it — for a fictional, caller-replaceable Hoboken building.
 PDF shipped in 1993, so this is a vector file, not a scan.
 
 A lease is a GOVERNED FILL. The prose layout is half the contract; the law
@@ -45,12 +45,10 @@ pre-1978 one), a flood notice answering "No" in flood-exposed Hoboken, a pet
 deposit on a disability assistance animal, a waiver of the tenant's right to a
 legal rent calculation, an invented NJ-Realtors form edition mark.
 
-Not sourced, therefore not invented (see .foundry/spec.yaml meta-build note):
-the FEMA flood-zone designation for the specific unit — the flood notice
-answers on the landlord's actual knowledge (the property is in a Hoboken flood
-hazard area; NFIP coverage available) without printing a zone code that would
-invite a lookup it cannot survive; and no NJ-Realtors form edition number is
-stamped, because that copyrighted form was not read.
+Not sourced, therefore not invented: the FEMA flood-zone designation for the
+fictional unit. The flood notice uses the modeled Hoboken risk context without
+printing a zone code that would invite a lookup it cannot survive; no
+NJ-Realtors form edition number is stamped because that form was not read.
 
 Fictional parties, high entropy by construction: tenant names, the signing
 leasing agent, the deposit institution and the account tail are drawn from
@@ -152,17 +150,17 @@ LAST_NAMES = [
 ESIGN_PLATFORM = "Riverline eSign"
 
 DEFAULT_CANON = {
-    "building_name": "The Jordan",
-    "street": "1200 Clinton Street",
-    "unit": "221",
+    "building_name": "Loom House",
+    "street": "47 Loomwright Mews",
+    "unit": "4C",
     "municipality": "Hoboken",
     "county": "Hudson",
     "state": "NEW JERSEY",
     "zip": "07030",
     "units": 128,                               # a large building -> 46:8-19(a)
-    "landlord_entity": "1200 Clinton Owner, LLC",
-    "managing_agent": "Harborview Residential Management, LLC",
-    "managing_agent_addr": ["1200 Clinton Street, Suite 100",
+    "landlord_entity": "Loomwright Mews Owner, LLC",
+    "managing_agent": "Riverglass Residential Management, LLC",
+    "managing_agent_addr": ["47 Loomwright Mews, Suite 100",
                             "Hoboken, New Jersey 07030"],
 }
 _CANON_KEYS = frozenset(DEFAULT_CANON)

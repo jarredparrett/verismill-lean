@@ -1,0 +1,6 @@
+# Exact pins for byte-reproducible builds (mattermill's determinism test
+# suite runs against this set). Consumers may use the looser ranges in
+# pyproject.toml; reproducible artifact pipelines should pin these.
+reportlab==4.4.3
+openpyxl==3.1.5
+Pillow==11.3.0

@@ -1,0 +1,20 @@
+# The climb's state is not repo content.
+#
+# The operating agent writes every round into .foundry/ — the spec it is
+# climbing, the atlas of tells, the hash-chained bus, judge briefs, answer
+# keys, verdicts, scores, sourced reference bytes, emitted artifacts. All of
+# it is one foundry's findings, and none of it is the instrument.
+#
+# Tracking it was how this repo got to 63% state by line count. A clone should
+# carry the machinery and start its own climb.
+/.foundry/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.DS_Store

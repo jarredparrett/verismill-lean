@@ -62,7 +62,8 @@ reports the round that judged it, never that it is realistic.
 ## The classes, and what each is made of
 
 ```python
-from mattermill import acord, acord130, bill_of_sale, diligence, nj_birth, vintage
+from mattermill import (acord, acord130, bill_of_sale, diligence, lease_nj,
+                        nj_birth, vintage)
 import random
 
 # ACORD 126 (2009/08, Commercial General Liability Section) — template-
@@ -106,6 +107,19 @@ packet = diligence.render_packet(pk, metadata=...)                  # ~26pp scan
 # assessor or city clerk filled and forwarded, as a scan
 birth = nj_birth.render_birth(nj_birth.sample_birth(random.Random(1884)),
                               metadata=...)
+
+# A New Jersey / Hoboken management-company residential lease — a GOVERNED
+# FILL. The deposit is computed from the rent and capped at 1.5 months
+# (46:8-19); a >=10-unit building invests it in a money-market account; a
+# renewal increase is held to the lesser of 5% or CPI (Hoboken § 155-5); the
+# § 155-4 rent-control disclosure and the NJ disclosure battery (flood, lead
+# iff pre-1978, truth-in-renting, window guards, bed bugs, DV) attach. Two
+# gates: state and municipality — Hoboken's Ch. 155 is the only rent-control
+# world sourced, so another town raises.
+lease = lease_nj.render_lease(lease_nj.sample_lease(random.Random(221)),
+                              metadata=...)
+bad   = lease_nj.render_lease(m, metadata=...,
+                              defect={"security_deposit": 5460.0})  # over the cap
 ```
 
 Under them sit four shared primitives, and nothing else:
@@ -127,8 +141,8 @@ Under them sit four shared primitives, and nothing else:
   their outputs are committed as assets and sampled under seed control,
   never called at render time.
 
-Canon-driven classes (`underwriting_file`, `msa_1987`, `nj_birth`, `acord130`)
-take a `canon=` world. The shipped default is invented; supply your own and
+Canon-driven classes (`underwriting_file`, `msa_1987`, `nj_birth`, `acord130`,
+`lease_nj`) take a `canon=` world. The shipped default is invented; supply your own and
 every place, party and production number in the document follows from it.
 
 Where a class is bound to a jurisdiction, the jurisdiction is a **gate, not a
@@ -140,7 +154,7 @@ Minnesota's algebra under a different heading.
 
 ## Status
 
-0.12.0 — API is unstable and will move while the foundry's realism climb
+0.13.1 — API is unstable and will move while the foundry's realism climb
 drives new emitters. Semver discipline starts at 0.2. The library is
 developed inside [verismill](https://github.com/jarredparrett/verismill-lean)
 as its rendering platform; it has no verismill dependencies.

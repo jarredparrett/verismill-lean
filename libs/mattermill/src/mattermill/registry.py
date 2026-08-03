@@ -37,8 +37,8 @@ import random
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from . import (__version__, acord, acord130, bill_of_sale, diligence, nj_birth,
-               vintage)
+from . import (__version__, acord, acord130, bill_of_sale, diligence, lease_nj,
+               nj_birth, vintage)
 
 # ---------------------------------------------------------------------------
 # Metadata profiles — how the artifact was captured, by era.
@@ -241,6 +241,77 @@ register(DocumentClass(
               "open": ["reviewed qualitatively; no numeric score recorded"]},
     sample=vintage.sample_msa, render=vintage.render_msa,
     profiles=SHEETFED, capture_window=(2016, 2021), takes_canon=True,
+))
+
+register(DocumentClass(
+    name="lease_nj",
+    summary="A New Jersey / Hoboken management-company residential lease at a "
+            "named address (The Jordan, 1200 Clinton St, Apt 221) — a governed "
+            "fill on the Rent Security Deposit Act, the NJ disclosure battery, "
+            "and Hoboken Rent Control (Ch. 155), as a property manager's system "
+            "would export it.",
+    module="mattermill.lease_nj",
+    era="contemporary",
+    substrate="born-digital vector PDF",
+    pins={"lease_type": "new | renewal",
+          "monthly_rent": "int/float; sampled if omitted",
+          "prior_rent": "renewal only — the rent the § 155-5 cap lifts from",
+          "cpi_pct": "renewal only — CPI differential; the cap is min(5%, this)",
+          "deposit_months": "float <= 1.5 (N.J.S.A. 46:8-19); deposit is derived",
+          "building_year": "int — drives lead disclosure and the § 155-4 recital",
+          "rent_controlled": "bool", "term_start": "ISO date",
+          "pets": "bool", "seniors": "bool"},
+    standing={"rung": "absolute r2", "round": 2,
+              "mode": "blind absolute review under judges.protocol v0.2.0 "
+                      "(min+veto, glance pass, k=3 lensed), NJ landlord-tenant "
+                      "attorney persona, no provenance",
+              "score": 25,                 # min+veto headline (overall_min 24)
+              "discrimination_accuracy": 1.0,
+              "aggregation": "min+veto (a strong dimension cannot buy back a "
+                             "failed disqualifier)",
+              "disqualifiers_failed": {"executed_consistently": "3/3",
+                                       "signature_is_a_hand": "3/3",
+                                       "no_impossible_identifier": "0/3"},
+              "dimensions": {"financial_operational": 89,
+                             "drafting_realism": 87,
+                             "visual_formatting": 84,
+                             "procedural_correctness": 82,
+                             "cross_field_consistency": 77,
+                             "external_verifiability": 76,
+                             "forensic_authenticity": 30},
+              "coherence_profile_mean": 75,
+              "open": ["the SAME bytes scored 60 under v0.1 (mean aggregation) "
+                       "and 24-25 under v0.2.0 (min+veto + a forensic lens + a "
+                       "glance-first pass) — the instrument was the finding; the "
+                       "60 was a laundered mean",
+                       "FORENSIC is the wall: signatures render as one "
+                       "name-agnostic hand for both parties, and the federal "
+                       "lead-paint LESSOR/LESSEE initial slots are blank on a "
+                       "lease reciting execution (mixed typeset/wet-ink/blank "
+                       "model). Both disqualifiers fail 3/3. The harvest's "
+                       "forensic fix did NOT hold and those tells are REOPENED",
+                       "what DID hold from the harvest: no invented identifiers "
+                       "(no_impossible_identifier 0/3), external_verifiability "
+                       "43->76, operative clauses (drafting 87), federal lead "
+                       "cite — those round-1 tells are RESOLVED",
+                       "forensic: the lease is signed but every per-page initials "
+                       "block and disclosure acknowledgment line is blank, and "
+                       "the two signatures read as one rendering — the state of a "
+                       "specimen, not a closed file (round-1 tell, harvest-fixed)",
+                       "the FEMA flood-zone designation for 1200 Clinton St is "
+                       "NOT looked up: the flood notice answers on the "
+                       "landlord's actual knowledge (Hoboken is a flood hazard "
+                       "area; NFIP coverage available) rather than printing a "
+                       "zone code that would invite a lookup it cannot survive",
+                       "no NJ-Realtors form edition mark is stamped — that "
+                       "copyrighted form was not sourced, and an invented "
+                       "edition number is a worse tell than its absence",
+                       "the management company, its rules exhibit and the "
+                       "deposit institution are plausible but invented; no real "
+                       "Hoboken managing agent or bank is named"]},
+    sample=lease_nj.sample_lease, render=lease_nj.render_lease,
+    profiles=OFFICE, capture_window=(2024, 2026),
+    takes_pins=True, takes_canon=True,
 ))
 
 register(DocumentClass(

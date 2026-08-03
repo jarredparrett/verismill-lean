@@ -13,6 +13,6 @@ Hard rules:
 """
 
 
-__version__ = "0.12.0"
+__version__ = "0.13.1"
 
-from . import acord, acord130, assets, bill_of_sale, diligence, legalpdf, lens, nj_birth, registry, scan, vintage  # noqa: F401
+from . import acord, acord130, assets, bill_of_sale, diligence, legalpdf, lease_nj, lens, nj_birth, registry, scan, vintage  # noqa: F401

@@ -36,8 +36,8 @@ import random
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from . import (__version__, acord, acord130, bill_of_sale, deed_nj, diligence, lease_nj,
-               nj_birth, vintage)
+from . import (__version__, acord, acord130, bill_of_sale, deed_nj, diligence,
+               estate_ma, lease_nj, nj_birth, vintage)
 
 # ---------------------------------------------------------------------------
 # Metadata profiles — how the artifact was captured, by era.
@@ -62,6 +62,11 @@ OFFICE = [                         # born-digital: the document IS the file
     ("Acrobat Distiller 8.3.1 (Windows)", "AMS360 Form Library"),
     ("Adobe PDF Library 15.0", "Adobe LiveCycle Designer ES4"),
     ("PDF-XChange (xcpro40.dll v4.0.0195.0000)", "Applied Epic Forms"),
+]
+LAW_OFFICE = [
+    ("Adobe Acrobat Pro DC 19.021", "Microsoft Word 2016"),
+    ("Adobe PDF Library 15.0", "Microsoft Word for Mac 16.30"),
+    ("PDF-XChange 8.0", "Worldox Document Manager"),
 ]
 
 
@@ -170,6 +175,20 @@ register(DocumentClass(
     pins={},
     sample=vintage.sample_msa, render=vintage.render_msa,
     profiles=SHEETFED, capture_window=(2016, 2021), takes_canon=True,
+))
+
+register(DocumentClass(
+    name="estate_packet_ma",
+    summary="A coordinated 2019 Massachusetts estate-planning and contested-"
+            "probate packet: will, funded revocable trust, capacity and "
+            "execution evidence, inventory, petition, objection, and settlement.",
+    module="mattermill.estate_ma",
+    era="contemporary (2019)",
+    substrate="searchable law-office production assembled from mixed originals",
+    pins={"bates_prefix": "production prefix; defaults to ESTATE-"},
+    sample=estate_ma.sample_estate, render=estate_ma.render_estate,
+    profiles=LAW_OFFICE, capture_window=(2019, 2019),
+    takes_pins=True, takes_canon=True,
 ))
 
 register(DocumentClass(

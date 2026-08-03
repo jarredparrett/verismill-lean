@@ -5,7 +5,8 @@
 
 mattermill renders *document classes* — the things a person asks for by name:
 an ACORD 126 or 130, a 1642 bill of sale engrossed on a membrane, a 1987
-marital settlement typed on pleading paper, a 1997 New Jersey deed, a
+marital settlement typed on pleading paper, a coordinated Massachusetts
+estate file, a 1997 New Jersey deed, a
 multi-instrument diligence production, or an 1878 New Jersey birth return. It renders them
 **byte-identically for a given seed**, so a pipeline can regenerate, diff, and
 verify every byte.
@@ -64,7 +65,7 @@ metadata and are not copied into emitted manifests.
 
 ```python
 from mattermill import (acord, acord130, bill_of_sale, deed_nj, diligence,
-                        lease_nj, nj_birth, vintage)
+                        estate_ma, lease_nj, nj_birth, vintage)
 import random
 
 # ACORD 126 (2009/08, Commercial General Liability Section) — template-
@@ -126,6 +127,18 @@ bad   = lease_nj.render_lease(m, metadata=...,
 # county scan with an era-correct deed, acknowledgment, and RTF-1 statement.
 deed = deed_nj.render_deed(deed_nj.sample_deed(random.Random(1997)),
                            metadata=...)
+
+# A coordinated 2019 Massachusetts estate-planning and contested-probate
+# production. One canon drives the will, restated revocable trust, signed
+# stock/copyright assignments, nonoperative intent memorandum, capacity
+# letter, execution notes, title-aware inventory, formal-probate petition,
+# family objection, and settlement/no-contest analysis. This is a law-office
+# assembly, not a representation that a court accepted or docketed anything.
+estate = estate_ma.sample_estate(random.Random(85), canon=my_estate_canon,
+                                pins={"bates_prefix": "EST-"})
+estate_pdf = estate_ma.render_estate(estate, metadata=...)
+bad = estate_ma.render_estate(estate, metadata=...,
+                              defect={"assigned_shares": 900})
 ```
 
 Under them sit four shared primitives, and nothing else:
@@ -148,7 +161,7 @@ Under them sit four shared primitives, and nothing else:
   never called at render time.
 
 Canon-driven classes (`underwriting_file`, `msa_1987`, `nj_birth`, `acord130`,
-`lease_nj`, `deed_nj_1997`) take a `canon=` world. The shipped default is
+`lease_nj`, `deed_nj_1997`, `estate_packet_ma`) take a `canon=` world. The shipped default is
 invented; supply your own and every place, party and production number in the
 document follows from it.
 
@@ -161,7 +174,7 @@ Minnesota's algebra under a different heading.
 
 ## Status
 
-0.14.6 — API is unstable before 1.0 and will move while the foundry's realism
+0.15.1 — API is unstable before 1.0 and will move while the foundry's realism
 climb drives new emitters. The library is
 developed inside [verismill](https://github.com/jarredparrett/verismill-lean)
 as its rendering platform; it has no verismill dependencies.

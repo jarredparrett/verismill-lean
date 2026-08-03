@@ -261,39 +261,43 @@ register(DocumentClass(
           "building_year": "int — drives lead disclosure and the § 155-4 recital",
           "rent_controlled": "bool", "term_start": "ISO date",
           "pets": "bool", "seniors": "bool"},
-    standing={"rung": "absolute r2", "round": 2,
+    standing={"rung": "absolute r3", "round": 3,
               "mode": "blind absolute review under judges.protocol v0.2.0 "
                       "(min+veto, glance pass, k=3 lensed), NJ landlord-tenant "
                       "attorney persona, no provenance",
-              "score": 25,                 # min+veto headline (overall_min 24)
+              "score": 66,                 # min+veto headline (overall_min 66)
               "discrimination_accuracy": 1.0,
               "aggregation": "min+veto (a strong dimension cannot buy back a "
                              "failed disqualifier)",
-              "disqualifiers_failed": {"executed_consistently": "3/3",
-                                       "signature_is_a_hand": "3/3",
+              "disqualifiers_failed": {"executed_consistently": "0/3",
+                                       "signature_is_a_hand": "0/3",
                                        "no_impossible_identifier": "0/3"},
-              "dimensions": {"financial_operational": 89,
-                             "drafting_realism": 87,
-                             "visual_formatting": 84,
-                             "procedural_correctness": 82,
-                             "cross_field_consistency": 77,
-                             "external_verifiability": 76,
-                             "forensic_authenticity": 30},
-              "coherence_profile_mean": 75,
-              "open": ["the SAME bytes scored 60 under v0.1 (mean aggregation) "
-                       "and 24-25 under v0.2.0 (min+veto + a forensic lens + a "
-                       "glance-first pass) — the instrument was the finding; the "
-                       "60 was a laundered mean",
-                       "FORENSIC is the wall: signatures render as one "
-                       "name-agnostic hand for both parties, and the federal "
-                       "lead-paint LESSOR/LESSEE initial slots are blank on a "
-                       "lease reciting execution (mixed typeset/wet-ink/blank "
-                       "model). Both disqualifiers fail 3/3. The harvest's "
-                       "forensic fix did NOT hold and those tells are REOPENED",
-                       "what DID hold from the harvest: no invented identifiers "
-                       "(no_impossible_identifier 0/3), external_verifiability "
-                       "43->76, operative clauses (drafting 87), federal lead "
-                       "cite — those round-1 tells are RESOLVED",
+              "dimensions": {"financial_operational": 94,
+                             "cross_field_consistency": 93,
+                             "drafting_realism": 90,
+                             "visual_formatting": 88,
+                             "procedural_correctness": 87,
+                             "forensic_authenticity": 72,
+                             "external_verifiability": 69},
+              "coherence_profile_mean": 85,
+              "trajectory": "60 (v0.1 mean) -> 24 (v0.2.0 min+veto) -> 66 "
+                            "(v0.2.0, e-sign build)",
+              "open": ["the e-sign lane CLOSED the round-2 forensic "
+                       "disqualifiers: one execution convention (adopted "
+                       "e-signatures spelling each name, every initial slot "
+                       "filled, a certificate of completion under NJ UETA). "
+                       "executed_consistently + signature_is_a_hand now pass "
+                       "0/3; forensic 30->72; those tells are RESOLVED",
+                       "still synthetic 3/3 but only at 0.6 confidence "
+                       "('genuinely close'), on SOFTER tells now: the e-sign "
+                       "vendor is fictional (a real one would be brand "
+                       "impersonation — an unavoidable tradeoff), and the "
+                       "penny-perfect coherence across 13 pages reads as "
+                       "machine-generated (inherent to a coherent-by-"
+                       "construction emitter)",
+                       "the non-conformant-UUID tell a round-3 judge caught is "
+                       "harvest-fixed (IDs are now RFC-4122 v4) and UNSCORED "
+                       "pending round 4",
                        "forensic: the lease is signed but every per-page initials "
                        "block and disclosure acknowledgment line is blank, and "
                        "the two signatures read as one rendering — the state of a "

@@ -200,6 +200,46 @@ def test_round1_harvest_fixes(model, pdf):
     assert "Tenant shall recover attorney's fees" in text
 
 
+def test_esign_ids_are_rfc4122_v4():
+    """lease.round3-uuid: envelope/signature IDs are conformant v4 UUIDs (a
+    round-3 forensic judge caught random hex dressed as GUIDs). Version nibble
+    is 4; variant nibble is 8/9/a/b."""
+    import re
+    m = L.sample_lease(random.Random(5))
+    ids = [m["esign"]["envelope_id"]] + [s["id"] for s in m["esign"]["signers"]]
+    v4 = re.compile(r"^[0-9A-F]{8}-[0-9A-F]{4}-4[0-9A-F]{3}-[89AB][0-9A-F]{3}-"
+                    r"[0-9A-F]{12}$")
+    for u in ids:
+        assert v4.match(u), f"not a v4 UUID: {u}"
+
+
+def test_round2_esign_execution_model(model, pdf):
+    """lease.round2-esign: the round-2 disqualifiers (executed_consistently,
+    signature_is_a_hand) closed by construction — ONE execution convention.
+    Every party adopts a typeset e-signature that spells the signer's name;
+    every initial slot is filled (no blank '____' lines); a certificate of
+    completion seals the envelope under NJ UETA."""
+    text = _content(pdf)
+    # one convention: adopted e-signatures, no wet-ink raster (no JPEG image)
+    assert b"/DCTDecode" not in pdf
+    assert "Signed electronically by:" in text
+    # the adopted signature is the signer's actual name (not a scrawl)
+    for signer in model["esign"]["signers"]:
+        assert signer["name"] in text
+    # NO blank required-initial lines anywhere (the lead-paint slots are filled)
+    assert "______" not in text
+    li = L._person_initials(model["leasing_agent"])
+    ti = L._person_initials(model["tenants"][0])
+    assert f"[{li}]" in text and f"[{ti}]" in text
+    # a certificate of completion, sealed under NJ UETA, naming every signer
+    assert "CERTIFICATE OF COMPLETION" in text
+    assert model["esign"]["envelope_id"] in text
+    assert "Uniform Electronic Transactions Act" in text
+    assert "12A:12-1" in text
+    # the platform is fictional — no real e-sign brand impersonated
+    assert "DocuSign" not in text and "Adobe Sign" not in text
+
+
 def test_lead_disclosure_coupled_to_age():
     """lease.lead-disclosure-coupled-to-age: the lead-based paint disclosure is
     present for pre-1978 housing and ABSENT for newer housing — never invented

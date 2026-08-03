@@ -66,15 +66,16 @@ import datetime as _dt
 import io
 import random
 
+from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas as rl_canvas
-from reportlab.platypus import (Image, PageBreak, Paragraph, SimpleDocTemplate,
-                                Spacer)
+from reportlab.platypus import (PageBreak, Paragraph, SimpleDocTemplate, Spacer,
+                                Table, TableStyle)
 
-from . import assets, legalpdf
+from . import legalpdf
 
 PAGE_W, PAGE_H = letter
 
@@ -145,6 +146,11 @@ LAST_NAMES = [
     "Amaral", "Yoon", "Kellerman", "Solano", "Redgrave", "Nasser",
     "Beaumont", "Iqbal",
 ]
+# A FICTIONAL e-signature platform. A real one (DocuSign, Adobe Sign) is a
+# trademark; stamping it on a fabricated executed lease would be brand
+# impersonation, so the platform is invented like the managing agent and bank.
+ESIGN_PLATFORM = "Riverline eSign"
+
 DEFAULT_CANON = {
     "building_name": "The Jordan",
     "street": "1200 Clinton Street",
@@ -312,6 +318,27 @@ def sample_lease(rng: random.Random, *, pins: dict | None = None,
     flood_in_hazard_area = "Yes"                # broadly true of Hoboken
     flood_history = rng.choice(["Yes", "Unknown", "Unknown"])
 
+    # -- e-signature envelope: ONE execution convention for the whole
+    #    instrument. Round-2 disqualifiers fired because the lease mixed
+    #    wet-ink scrawls, typeset initials and blank initial slots; an e-signed
+    #    document adopts one typeset signature everywhere, fills every slot, and
+    #    carries a certificate of completion. The envelope/signature IDs are
+    #    internal to the platform and resolve to nothing public, so they are not
+    #    lookup-inviting identifiers (unlike a registry code).
+    sign_h, sign_m = rng.randint(9, 16), rng.randint(0, 55)
+    roster = [(t, "Tenant") for t in tenants] + \
+             [(leasing_agent, f"Authorized Agent, {cn['managing_agent']}")]
+    signers = []
+    for i, (nm, role) in enumerate(roster):
+        mm = (sign_m + i * 6) % 60
+        hh = sign_h + (sign_m + i * 6) // 60
+        signers.append({
+            "name": nm, "role": role, "id": _guid(rng), "ip": _ip(rng),
+            "signed_at": f"{start.strftime('%B')} {start.day}, {start.year} "
+                         f"at {hh:02d}:{mm:02d} ET"})
+    esign = {"envelope_id": _guid(rng), "platform": ESIGN_PLATFORM,
+             "signers": signers}
+
     return {
         **cn,
         "municipality_world": ho,
@@ -338,17 +365,31 @@ def sample_lease(rng: random.Random, *, pins: dict | None = None,
         "pets_allowed": pets_allowed,
         "flood_in_hazard_area": flood_in_hazard_area,
         "flood_history": flood_history,
+        "esign": esign,
         "sig_seed": rng.randrange(1 << 30),
     }
 
 
-def _stable_hash(s: str) -> int:
-    """Deterministic across processes, unlike builtin hash() (randomized per
-    interpreter, which would break seed -> byte identity — invariant 1)."""
-    h = 0
-    for ch in s:
-        h = (h * 131 + ord(ch)) % 1000003
-    return h
+def _guid(rng: random.Random) -> str:
+    """A platform-style envelope/signature id from the caller's seed (never the
+    uuid module — that would break seed -> byte identity, invariant 1). It IS a
+    conformant RFC-4122 version-4 UUID: real e-sign platforms emit v4, and a
+    round-3 forensic judge caught that random hex dressed as a GUID has the
+    wrong version/variant nibbles."""
+    h = list("%032x" % rng.getrandbits(128))
+    h[12] = "4"                                  # version 4
+    h[16] = rng.choice("89ab")                   # variant 10xx
+    s = "".join(h)
+    return f"{s[:8]}-{s[8:12]}-{s[12:16]}-{s[16:20]}-{s[20:32]}".upper()
+
+
+def _ip(rng: random.Random) -> str:
+    return (f"{rng.choice([24, 71, 73, 98, 108, 172])}.{rng.randint(0, 255)}."
+            f"{rng.randint(0, 255)}.{rng.randint(1, 254)}")
+
+
+def _person_initials(name: str) -> str:
+    return "".join(w[0] for w in name.split()[:2]).upper()
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +406,7 @@ DOC_MARKERS = [
     "11. RENTER'S INSURANCE", "12. PETS",
     "13. LANDLORD'S RIGHT OF ENTRY", "16. DEFAULT AND REMEDIES",
     "17. HOLDOVER", "19. RULES AND REGULATIONS", "23. GOVERNING LAW",
-    "IN WITNESS WHEREOF",
+    "IN WITNESS WHEREOF", "Signed electronically by:",
     # addenda / disclosures
     "HOBOKEN RENT CONTROL", "DISCLOSURE STATEMENT",
     "legal rent calculation", "two (2) years",
@@ -373,6 +414,8 @@ DOC_MARKERS = [
     "TRUTH IN RENTING", "P.O. Box 805",
     "WINDOW GUARD", "BED BUG", "DOMESTIC VIOLENCE",
     "RULES AND REGULATIONS OF THE BUILDING",
+    # e-sign certificate of completion (one execution convention, sealed)
+    "CERTIFICATE OF COMPLETION", "Uniform Electronic Transactions Act",
 ]
 
 
@@ -716,6 +759,9 @@ def _flood_notice(m: dict, area_answer: str) -> tuple:
 
 
 def _lead_disclosure(m: dict) -> tuple:
+    li = _person_initials(m["leasing_agent"])   # landlord agent initials
+    ti = _person_initials(m["tenants"][0])      # tenant initials
+    ini = lambda x: f'<font face="Times-Italic">[{x}]</font>'
     return ("LEAD-BASED PAINT DISCLOSURE", [
         f"This building was constructed in {m['building_year']}. This "
         f"disclosure is required by the federal Residential Lead-Based Paint "
@@ -725,14 +771,14 @@ def _lead_disclosure(m: dict) -> tuple:
         "lead-based paint. Lead from paint, paint chips, and dust can pose "
         "health hazards if not managed properly. Lead exposure is especially "
         "harmful to young children and pregnant women.",
-        "LESSOR'S DISCLOSURE (Landlord to initial): (a) Landlord has no "
-        "knowledge of lead-based paint or lead-based paint hazards in the "
-        "Premises. ______   (b) Landlord has no reports or records pertaining "
-        "to lead-based paint or lead-based paint hazards in the Premises. "
-        "______",
-        "LESSEE'S ACKNOWLEDGMENT (Tenant to initial): Tenant has received "
-        "copies of any information listed above and the EPA-approved pamphlet "
-        "\"Protect Your Family From Lead in Your Home.\" ______",
+        f"LESSOR'S DISCLOSURE (Landlord's initials): (a) Landlord has no "
+        f"knowledge of lead-based paint or lead-based paint hazards in the "
+        f"Premises. {ini(li)}   (b) Landlord has no reports or records "
+        f"pertaining to lead-based paint or lead-based paint hazards in the "
+        f"Premises. {ini(li)}",
+        f"LESSEE'S ACKNOWLEDGMENT (Tenant's initials): Tenant has received "
+        f"copies of any information listed above and the EPA-approved pamphlet "
+        f"\"Protect Your Family From Lead in Your Home.\" {ini(ti)}",
     ])
 
 
@@ -815,6 +861,16 @@ _BODY = ParagraphStyle("b", fontName="Times-Roman", fontSize=10, leading=13.5,
 # The flood notice statute requires not less than 12-point type.
 _FLOOD = ParagraphStyle("f", parent=_BODY, fontSize=12, leading=15.5)
 _SIG = ParagraphStyle("s", fontName="Times-Roman", fontSize=10, leading=22)
+# The adopted e-signature: the signer's actual NAME set in an italic face —
+# legible and name-specific, the opposite of the round-2 name-agnostic scrawl.
+_ESIGN_NAME = ParagraphStyle("en", fontName="Times-Italic", fontSize=17,
+                             leading=20, textColor=colors.HexColor("#12203c"))
+_ESIGN_META = ParagraphStyle("em", fontName="Helvetica", fontSize=7,
+                             leading=9, textColor=colors.HexColor("#5a5a5a"))
+_CERT_H = ParagraphStyle("ch", fontName="Helvetica-Bold", fontSize=11,
+                         leading=14, spaceAfter=6)
+_CERT = ParagraphStyle("c", fontName="Helvetica", fontSize=8.5, leading=12,
+                       spaceAfter=5)
 
 
 def _make_canvas(footer_title: str, initials: str):
@@ -864,14 +920,55 @@ def _initials(tenants: list[str]) -> str:
     return " / ".join("".join(w[0] for w in t.split()[:2]) for t in tenants)
 
 
-def _signature_flowable(name: str, seed: int, role: str, ink: tuple) -> list:
-    png = assets.signature_png(seed, name=name, ink=ink)
-    img = Image(io.BytesIO(png), width=150, height=51)
-    img.hAlign = "LEFT"
-    return [img,
-            Paragraph("_" * 46, _SIG),
-            Paragraph(f"{name}<br/><font size=8>{role}</font>", _SIG),
-            Spacer(1, 10)]
+def _esign_block(signer: dict) -> list:
+    """One adopted e-signature, ONE convention for every party. A bordered
+    stamp: 'Signed electronically by', the signer's name in an italic hand, and
+    the platform's signature id / timestamp / IP. No wet-ink image, so there is
+    no name-agnostic scrawl and no shared hand — the round-2 disqualifiers."""
+    inner = [
+        [Paragraph("Signed electronically by:", _ESIGN_META)],
+        [Paragraph(signer["name"], _ESIGN_NAME)],
+        [Paragraph(f"{signer['role']}<br/>Signature ID {signer['id']}<br/>"
+                   f"Signed {signer['signed_at']} &nbsp;·&nbsp; "
+                   f"IP {signer['ip']}", _ESIGN_META)],
+    ]
+    t = Table(inner, colWidths=[3.5 * inch])
+    t.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#9aa4b8")),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f4f6fb")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
+    t.hAlign = "LEFT"
+    return [t, Spacer(1, 12)]
+
+
+def _certificate_flowables(esign: dict, title: str) -> list:
+    """The certificate of completion — the audit trail a real e-signed document
+    carries. Its presence is what makes the whole execution model consistent:
+    one platform, every signer accounted for, sealed under NJ UETA."""
+    out = [PageBreak(),
+           Paragraph("CERTIFICATE OF COMPLETION", _CERT_H),
+           Paragraph(f"Envelope ID: {esign['envelope_id']}", _CERT),
+           Paragraph(f"Document: {title}", _CERT),
+           Paragraph("Status: <b>Completed</b>", _CERT),
+           Spacer(1, 6),
+           Paragraph("<b>Signers</b>", _CERT)]
+    for s in esign["signers"]:
+        out.append(Paragraph(
+            f"&nbsp;&nbsp;{s['name']} — {s['role']}<br/>"
+            f"&nbsp;&nbsp;&nbsp;&nbsp;Signature ID {s['id']} &nbsp;·&nbsp; "
+            f"Signed {s['signed_at']} &nbsp;·&nbsp; IP {s['ip']}", _CERT))
+    out.append(Spacer(1, 8))
+    out.append(Paragraph(
+        f"This record was created and sealed by {esign['platform']} in "
+        f"accordance with the New Jersey Uniform Electronic Transactions Act, "
+        f"N.J.S.A. 12A:12-1 et seq. Under that Act an electronic signature has "
+        f"the same legal effect as a handwritten signature. Each signer adopted "
+        f"the signature shown above and consented to transact electronically.",
+        _CERT))
+    return out
 
 
 def render_lease(model: dict, *, metadata: dict,
@@ -903,24 +1000,21 @@ def render_lease(model: dict, *, metadata: dict,
         for p in paras:
             story.append(Paragraph(p.replace("&", "&amp;"), _BODY))
 
-    # execution block
+    # execution block — ONE convention (adopted e-signatures) for every party.
+    esign = model["esign"]
     story.append(Paragraph("IN WITNESS WHEREOF, the parties have executed this "
-                           "Lease as of the date first written above.", _BODY))
+                           "Lease as of the date first written above, adopting "
+                           "the electronic signatures below.", _BODY))
     story.append(Spacer(1, 8))
     story.append(Paragraph("<b>LANDLORD:</b> " + comp["landlord"], _BODY))
-    # Distinct ink per party: two adverse signatures in one hand was the
-    # round-1 forensic tell. Landlord signs blue-black, Tenant black.
-    story += _signature_flowable(
-        comp["leasing_agent"], _stable_hash(comp["leasing_agent"]) ^ model["sig_seed"],
-        f"Authorized Agent for {model['managing_agent']}", ink=(18, 30, 92))
+    agent = esign["signers"][-1]                 # roster puts the agent last
+    story += _esign_block(agent)
     story.append(Paragraph("<b>TENANT(S):</b>", _BODY))
-    for t in comp["tenants"]:
-        story += _signature_flowable(t, _stable_hash(t) ^ model["sig_seed"],
-                                     "Tenant", ink=(24, 22, 26))
+    for s in esign["signers"][:-1]:
+        story += _esign_block(s)
 
-    # disclosures / addenda — each acknowledged (name + date), not left blank:
-    # a signed lease whose disclosures are all unacknowledged reads as a
-    # specimen (round-1 forensic tell).
+    # disclosures / addenda — each acknowledged by the tenant's adopted
+    # e-signature (name + date), same convention as the signature page.
     ack_names = " and ".join(comp["tenants"])
     for heading, paras in comp["disclosures"]:
         story.append(PageBreak())
@@ -930,8 +1024,12 @@ def render_lease(model: dict, *, metadata: dict,
             story.append(Paragraph(p.replace("&", "&amp;"), style))
         story.append(Spacer(1, 8))
         story.append(Paragraph(
-            f"Acknowledged by Tenant: {ack_names} &nbsp;&nbsp;&nbsp; "
-            f"Date: {comp['signed_date']}", _SIG))
+            f'Acknowledged by Tenant: '
+            f'<font face="Times-Italic">{ack_names}</font> '
+            f'&nbsp;&nbsp;&nbsp; Date: {comp["signed_date"]}', _SIG))
+
+    # certificate of completion — the audit trail that seals the e-sign model
+    story += _certificate_flowables(esign, title)
 
     doc.build(story, onFirstPage=_meta, onLaterPages=_meta,
               canvasmaker=_make_canvas(title, _initials(comp["tenants"])))

@@ -151,3 +151,10 @@ Run both test suites if code changed. Report the blind score distribution,
 acceptance result, model panel, asserted repairs, unresolved tells, and sourcing
 debt. Leave a failed round `judged` until the next explicit `continue`; preserve
 an accepted candidate with its frozen evidence.
+
+If the round changed repository code, it is not closed while the fix exists
+only in the worktree. Commit with the experiment ID and measuring instrument,
+push a `codex/` branch, and open a ready pull request—or update the open pull
+request that already owns the scope. Link the PR in the operator report. A harvest PR reports
+an asserted repair, never a score or resolved tell; fresh blind evidence is
+still required.

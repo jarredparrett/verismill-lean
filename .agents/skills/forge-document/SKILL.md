@@ -191,4 +191,8 @@ Before committing code: both suites green, the version bumped if an emitter
 changed, and the candidate regenerated with its sidecar manifest. Experiment
 state remains in the operator's data directory and must verify cleanly. Preserve
 the round reasoning in the commit message: never a fix without its measurement,
-or a measurement without saying what instrument produced it.
+or a measurement without saying what instrument produced it. A repository
+change discovered by the experiment must be pushed on a `codex/` branch and
+published as a ready pull request (or added to the open pull request that
+already owns the scope); returning with an unpushed local repair is not a
+completed forge.

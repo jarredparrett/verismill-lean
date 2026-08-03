@@ -150,6 +150,13 @@ Ask the agent to use `forge-document`. It routes the work through:
 The sourcing gate is deliberate: standard forms, statutory language, registry
 codes, and period objects must be built against real references, not memory.
 
+When an experiment exposes an emitter defect, the operating contract does not
+leave the repair as private workstation state. The agent records the tell and
+asserted repair in the experiment, lands a capability test, runs both suites,
+then pushes a `codex/` branch and opens a ready pull request (or updates the
+already-open pull request for that scope). A harvest PR is evidence of a repair,
+not a claim of blind acceptance.
+
 ## What an experiment preserves
 
 Each experiment is a resumable bundle:

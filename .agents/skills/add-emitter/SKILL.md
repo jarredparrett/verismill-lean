@@ -128,7 +128,7 @@ byte-identical), each defect hook breaking only its target, and metadata
 chronology. Add **guard tests** for mistakes you have ruled out — asserting
 the *absence* of a wrong-form section or an anachronistic citation.
 
-## 7. Wire, version, demo, commit
+## 7. Wire, version, demo, publish
 
 ```bash
 # export the module
@@ -160,6 +160,12 @@ Update the mattermill README usage block, and register only the class's static
 capabilities in `registry.py`. Never copy a score, round, or `unreviewed` marker
 into the package catalog or emitted manifest. The demo, bus, and any derived
 standing stay in the operator's experiment store outside the clone.
+
+Commit the tested emitter on a `codex/` branch, push it, and open a ready pull
+request. The PR description names the experiment, sources, requirements,
+measurement kind, known limitations, and exact verification commands. If an
+open pull request already owns this scope, update it rather than duplicating it.
+Do not describe a builder or harvest review as blind acceptance.
 
 ## 8. Report back
 

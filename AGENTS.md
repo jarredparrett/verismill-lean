@@ -145,3 +145,20 @@ Both green, always. Then:
 
 Never commit a fix without its measurement, or a measurement without saying
 what instrument produced it.
+
+## Measured defects must leave the workstation
+
+When an experiment exposes a repository defect and the agent changes code to
+repair it, local green tests are not the end of the lifecycle. The agent must:
+
+1. preserve the finding and asserted repair in the user-owned experiment;
+2. add the capability test, make the smallest repair, and run both test suites;
+3. commit the change with the experiment ID, measuring instrument, observed
+   tell, repair, and any remaining debt in the commit message;
+4. push a `codex/` branch and open a ready pull request with that evidence.
+
+If the current branch already has an open pull request whose scope includes the
+repair, update that pull request instead of opening a duplicate. Report the PR
+URL either way. A harvest remains unscored and the pull request must not imply
+that its repair has passed blind acceptance; only a fresh blind evaluation can
+do that.

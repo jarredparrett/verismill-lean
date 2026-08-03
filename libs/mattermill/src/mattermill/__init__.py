@@ -6,6 +6,6 @@ Explicit defect hooks create scorable deltas without ambient inconsistency.
 """
 
 
-__version__ = "0.14.5"
+__version__ = "0.14.6"
 
 from . import acord, acord130, assets, bill_of_sale, deed_nj, diligence, legalpdf, lease_nj, lens, nj_birth, registry, scan, vintage  # noqa: F401

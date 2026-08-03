@@ -69,6 +69,34 @@ def test_canon_is_caller_supplied():
         vintage.sample_msa(random.Random(3), canon={"husband": "A. PERSON"})
 
 
+def test_execution_blocks_do_not_split_across_pages(model):
+    """vintage.signature-block-pagination: notary and judicial execution
+    blocks stay intact instead of creating mostly blank orphan pages."""
+    lines = vintage.compose_msa(model)
+
+    def index(*, text=None, sig=None):
+        return next(i for i, line in enumerate(lines)
+                    if (text is None or line.get("text") == text)
+                    and (sig is None or line.get("sig") == sig))
+
+    notary_block = {
+        index(text="ACKNOWLEDGMENT"),
+        index(sig="notary"),
+        next(i for i, line in enumerate(lines)
+             if "My commission expires" in line.get("text", "")),
+    }
+    judge_block = {
+        index(sig="judge"),
+        index(text="     JUDGE OF THE SUPERIOR COURT"),
+    }
+    assert len({i // vintage.N_LINES for i in notary_block}) == 1
+    assert len({i // vintage.N_LINES for i in judge_block}) == 1
+
+    signers = vintage._signers(model)
+    assert signers["wife"][1] == model["wife"].title()
+    assert signers["husband"][1] == model["husband"].title()
+
+
 def test_agreement_text(rendered):
     """vintage.pleading-paper-layout + the movie's split: both twins named
     with the same DOB, split custody, mutual no-contact, the surname

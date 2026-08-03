@@ -161,7 +161,7 @@ Minnesota's algebra under a different heading.
 
 ## Status
 
-0.14.5 — API is unstable before 1.0 and will move while the foundry's realism
+0.14.6 — API is unstable before 1.0 and will move while the foundry's realism
 climb drives new emitters. The library is
 developed inside [verismill](https://github.com/jarredparrett/verismill-lean)
 as its rendering platform; it has no verismill dependencies.

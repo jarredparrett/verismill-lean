@@ -1,0 +1,242 @@
+{
+  "schema": "kernel.game-release/v0",
+  "release_id": "sha256:e3cfb399c142244474b6f8ca9bcbfbad9c42e5ea2677a70b2e0148e70a2af1bd",
+  "source": {
+    "candidate_id": "candidate.the-missing-ledger.1",
+    "candidate_hash": "sha256:3f2abf690a8ba66e1402e9a5073bdb7e9809055f34ed61e88cf29505d7ff0bc6",
+    "seed": 17,
+    "components": {
+      "kernel": "0.1.0-prototype",
+      "narrative_extension": "0.1.0-prototype",
+      "profile": "narrative.facilitated-investigation/v1"
+    }
+  },
+  "game": {
+    "id": "the-missing-ledger",
+    "title": "The Missing Ledger",
+    "phases": [
+      {
+        "id": "opening",
+        "player_actions": ["record_note"]
+      },
+      {
+        "id": "investigation",
+        "player_actions": ["record_note"]
+      },
+      {
+        "id": "accusation",
+        "player_actions": ["record_note", "submit_accusation"]
+      }
+    ]
+  },
+  "trusted": {
+    "facts": [
+      {
+        "id": "fact.evelyn-took-ledger",
+        "statement": "Evelyn took the partnership ledger at 9:15 p.m."
+      },
+      {
+        "id": "fact.evelyn-hid-ledger",
+        "statement": "Evelyn hid the ledger inside the blue archive folio."
+      },
+      {
+        "id": "fact.marcus-left-early",
+        "statement": "Marcus left the archive room before 9:00 p.m."
+      }
+    ],
+    "hypotheses": [
+      {
+        "id": "hypothesis.evelyn",
+        "statement": "Evelyn took and concealed the ledger.",
+        "verdict": "supported"
+      },
+      {
+        "id": "hypothesis.marcus",
+        "statement": "Marcus took the ledger before leaving the archive room.",
+        "verdict": "refuted"
+      }
+    ],
+    "proof_paths": [
+      {
+        "id": "proof.access-and-ink",
+        "requires": ["evidence.access-log", "evidence.ink-transfer"],
+        "concludes": "hypothesis.evelyn"
+      },
+      {
+        "id": "proof.access-and-folio",
+        "requires": ["evidence.access-log", "evidence.folio-impression"],
+        "concludes": "hypothesis.evelyn"
+      }
+    ],
+    "resolution": {
+      "opens_at": "accusation",
+      "prompt": "Who took the ledger, where was it hidden, and which evidence proves it?",
+      "correct_hypothesis": "hypothesis.evelyn",
+      "accepts_proof_paths": [
+        "proof.access-and-ink",
+        "proof.access-and-folio"
+      ]
+    }
+  },
+  "seats": [
+    {
+      "id": "seat.evelyn",
+      "character": {
+        "id": "evelyn",
+        "name": "Evelyn Shaw"
+      },
+      "knowledge": [
+        "fact.evelyn-took-ledger",
+        "fact.evelyn-hid-ledger"
+      ],
+      "secrets": [
+        "fact.evelyn-took-ledger",
+        "fact.evelyn-hid-ledger"
+      ],
+      "beliefs": [
+        {
+          "hypothesis": "hypothesis.evelyn",
+          "confidence": "certain"
+        }
+      ],
+      "objectives": [
+        {
+          "id": "objective.evelyn-protect-folio",
+          "text": "Keep the blue archive folio from being searched.",
+          "active_from": "opening"
+        }
+      ]
+    },
+    {
+      "id": "seat.marcus",
+      "character": {
+        "id": "marcus",
+        "name": "Marcus Vale"
+      },
+      "knowledge": ["fact.marcus-left-early"],
+      "secrets": [],
+      "beliefs": [
+        {
+          "hypothesis": "hypothesis.evelyn",
+          "confidence": "uncertain"
+        }
+      ],
+      "objectives": [
+        {
+          "id": "objective.marcus-establish-departure",
+          "text": "Establish when you left the archive room.",
+          "active_from": "opening"
+        }
+      ]
+    },
+    {
+      "id": "seat.priya",
+      "character": {
+        "id": "priya",
+        "name": "Priya Nair"
+      },
+      "knowledge": ["fact.marcus-left-early"],
+      "secrets": [],
+      "beliefs": [
+        {
+          "hypothesis": "hypothesis.marcus",
+          "confidence": "plausible"
+        }
+      ],
+      "objectives": [
+        {
+          "id": "objective.priya-test-suspicion",
+          "text": "Test your suspicion about Marcus against the records.",
+          "active_from": "opening"
+        }
+      ]
+    }
+  ],
+  "materials": [
+    {
+      "id": "evidence.access-log",
+      "title": "Archive-room access log",
+      "path": "materials/access-log.txt",
+      "media_type": "text/plain",
+      "sha256": "8a3a1afa68677c43423dc50b484100f7c39ed642bfc0eef0cca69af9a9c4ce7f",
+      "represents": ["fact.marcus-left-early"],
+      "supports": ["hypothesis.evelyn"],
+      "contradicts": ["hypothesis.marcus"]
+    },
+    {
+      "id": "evidence.ink-transfer",
+      "title": "Ink transfer on Evelyn's cuff",
+      "path": "materials/ink-transfer.txt",
+      "media_type": "text/plain",
+      "sha256": "aeb53ee3f0545823586912ddc2e943082ec103e2e2db11ec79a3b23ce671badd",
+      "represents": ["fact.evelyn-took-ledger"],
+      "supports": ["hypothesis.evelyn"],
+      "contradicts": []
+    },
+    {
+      "id": "evidence.folio-impression",
+      "title": "Pressure impression in the blue folio",
+      "path": "materials/folio-impression.txt",
+      "media_type": "text/plain",
+      "sha256": "44cc34991edfc132713262620ed925777efa151283db45a2d9471325023274eb",
+      "represents": ["fact.evelyn-hid-ledger"],
+      "supports": ["hypothesis.evelyn"],
+      "contradicts": []
+    }
+  ],
+  "access_rules": [
+    {
+      "material": "evidence.access-log",
+      "grants": [
+        {
+          "audience": ["seat.marcus"],
+          "from_phase": "opening"
+        },
+        {
+          "audience": "all",
+          "from_phase": "investigation"
+        }
+      ]
+    },
+    {
+      "material": "evidence.ink-transfer",
+      "grants": [
+        {
+          "audience": "all",
+          "from_phase": "investigation"
+        }
+      ]
+    },
+    {
+      "material": "evidence.folio-impression",
+      "grants": [
+        {
+          "audience": "all",
+          "from_phase": "accusation"
+        }
+      ]
+    }
+  ],
+  "host": {
+    "controls": ["advance_phase", "record_observation"],
+    "hints": [
+      {
+        "id": "hint.compare-times",
+        "available_from": "investigation",
+        "audience": "all",
+        "text": "Compare the departure times with the condition of the ledger materials."
+      }
+    ]
+  },
+  "presentation": {
+    "theme": "restrained private-archive dossier",
+    "locale": "en-US"
+  },
+  "physical_export": {
+    "format": "prototype/text",
+    "host_directory": "HOST",
+    "seat_directory": "CHARACTERS",
+    "phase_directory": "ROUNDS",
+    "print_directory": "PRINT"
+  }
+}

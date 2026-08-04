@@ -1,0 +1,151 @@
+schema: narrative.game-definition/v0
+id: the-missing-ledger
+title: The Missing Ledger
+profile: narrative.facilitated-investigation/v1
+
+direction:
+  premise: A partnership ledger disappears during a private archive gathering.
+  experience:
+    player_count: 3
+    duration_minutes: 45
+    tone: grounded contemporary financial mystery
+    difficulty: introductory
+  realism_requirements:
+    - Every timestamp must derive from one canonical event timeline.
+    - Financial and access-control records must use plausible institutional language.
+    - Suspicion must arise from evidence rather than genre convention alone.
+  content_boundaries:
+    exclude:
+      - graphic violence
+      - harm to children
+  required_outcomes:
+    - Players can identify who took the ledger and where it was concealed.
+    - At least two independent proof paths support the correct hypothesis.
+
+phases:
+  - opening
+  - investigation
+  - accusation
+
+truth:
+  facts:
+    - id: fact.evelyn-took-ledger
+      statement: Evelyn took the partnership ledger at 9:15 p.m.
+    - id: fact.evelyn-hid-ledger
+      statement: Evelyn hid the ledger inside the blue archive folio.
+    - id: fact.marcus-left-early
+      statement: Marcus left the archive room before 9:00 p.m.
+
+hypotheses:
+  - id: hypothesis.evelyn
+    statement: Evelyn took and concealed the ledger.
+    verdict: supported
+  - id: hypothesis.marcus
+    statement: Marcus took the ledger before leaving the archive room.
+    verdict: refuted
+
+characters:
+  - id: evelyn
+    name: Evelyn Shaw
+    knows:
+      - fact.evelyn-took-ledger
+      - fact.evelyn-hid-ledger
+    hides:
+      - fact.evelyn-took-ledger
+      - fact.evelyn-hid-ledger
+    believes:
+      - hypothesis: hypothesis.evelyn
+        confidence: certain
+    objectives:
+      - Keep the blue archive folio from being searched.
+      - Convince at least one person that Marcus returned after 9:00 p.m.
+
+  - id: marcus
+    name: Marcus Vale
+    knows:
+      - fact.marcus-left-early
+    hides: []
+    believes:
+      - hypothesis: hypothesis.evelyn
+        confidence: uncertain
+    objectives:
+      - Establish when you left the archive room.
+      - Discover why Evelyn asked about the blue folio.
+
+  - id: priya
+    name: Priya Nair
+    knows:
+      - fact.marcus-left-early
+    hides: []
+    believes:
+      - hypothesis: hypothesis.marcus
+        confidence: plausible
+    objectives:
+      - Test your suspicion about Marcus against the available records.
+      - Make the group explain where the ledger was concealed.
+
+evidence:
+  - id: evidence.access-log
+    title: Archive-room access log
+    finding: Marcus badged out at 8:52 p.m.; Evelyn badged out at 9:19 p.m.
+    represents:
+      - fact.marcus-left-early
+    supports:
+      - hypothesis.evelyn
+    contradicts:
+      - hypothesis.marcus
+
+  - id: evidence.ink-transfer
+    title: Ink transfer on Evelyn's cuff
+    finding: The cuff carries the ledger's distinctive violet indexing ink.
+    represents:
+      - fact.evelyn-took-ledger
+    supports:
+      - hypothesis.evelyn
+    contradicts: []
+
+  - id: evidence.folio-impression
+    title: Pressure impression in the blue folio
+    finding: The folio lining bears the ledger clasp's rectangular impression.
+    represents:
+      - fact.evelyn-hid-ledger
+    supports:
+      - hypothesis.evelyn
+    contradicts: []
+
+proof_paths:
+  - id: proof.access-and-ink
+    requires:
+      - evidence.access-log
+      - evidence.ink-transfer
+    concludes: hypothesis.evelyn
+  - id: proof.access-and-folio
+    requires:
+      - evidence.access-log
+      - evidence.folio-impression
+    concludes: hypothesis.evelyn
+
+reveals:
+  - id: reveal.access-log
+    at: investigation
+    to: all
+    evidence:
+      - evidence.access-log
+  - id: reveal.ink-transfer
+    at: investigation
+    to: all
+    evidence:
+      - evidence.ink-transfer
+  - id: reveal.folio-impression
+    at: accusation
+    to: all
+    evidence:
+      - evidence.folio-impression
+
+resolution:
+  opens_at: accusation
+  prompt: Who took the ledger, where was it hidden, and which evidence proves it?
+  correct_hypothesis: hypothesis.evelyn
+  accepts_proof_paths:
+    - proof.access-and-ink
+    - proof.access-and-folio

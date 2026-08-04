@@ -191,11 +191,11 @@ def test_parse_absolute_verdict_accepts_region_tell():
 
 
 def test_lens_assignment_covers_forensic():
-    """FM5: k=3 covers all lenses; a forensic-less assignment is not a forensic
-    measurement."""
+    """FM5: k=3 covers all lenses; any missing lens is incomplete measurement."""
     assert judges.coverage_ok(judges.assign_lenses(3))
     assert set(judges.assign_lenses(3)) == set(judges.LENSES)
     assert not judges.coverage_ok(["arithmetic_and_dates", "procedural_and_citations"])
+    assert not judges.coverage_ok(["forensic_and_visual"] * 3)
 
 
 def test_absolute_brief_is_two_pass_and_omits_overall():

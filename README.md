@@ -68,13 +68,14 @@ plain language:
 
 ```text
 Use forge-document to build a 1997 residential deed for Madison, New Jersey.
-Use climb-round to launch a fresh blind panel.
 Continue the experiment for another repair and evaluation cycle.
 Rerun the blind evaluation with a different model panel.
 ```
 
 The agent should show its current role, preserve builder/judge blindness, and
-write every transition into one experiment directory.
+write every transition into one experiment directory. `forge-document` includes
+the blind panel: development selection seals the candidate and the agent
+continues through measurement without requiring another user prompt.
 
 The lifecycle is:
 
@@ -113,7 +114,7 @@ verismill verify "$EXP"
 
 Builder and judge invocations are provider-neutral `agent-run` receipts. After
 registering those receipts, the experiment records candidates, development
-decisions, submission, blind evaluation, tells, and repairs. See
+selection and automatic sealing, blind evaluation, tells, and repairs. See
 [docs/experiment.md](docs/experiment.md) for the complete Python and CLI API.
 
 Blind scores are never accepted as caller-authored JSON. `verismill judge`
@@ -125,6 +126,10 @@ verismill judge "$EXP" --mode absolute \
   --judge-run sha256:<receipt-2> \
   --judge-run sha256:<receipt-3>
 ```
+
+Provider adapters can call `Experiment.run_absolute_blind_measurement()` after
+development selection to invoke, persist, and score the complete model panel in
+one operation.
 
 Useful recovery commands:
 

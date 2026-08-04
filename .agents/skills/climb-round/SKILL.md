@@ -7,7 +7,7 @@ description: Run one persisted L1 realism cycle in a verismill experiment — re
 
 Treat the experiment as the source of truth. A round is:
 
-**measure → record tells → repair/revise → emit → blind-judge again**
+**develop → select-and-seal → blind-measure → record tells → repair/revise → repeat**
 
 Read `AGENTS.md` first. Preserve builder/judge blindness and every seeded,
 coherence, reference, and forensic invariant.
@@ -59,9 +59,14 @@ blind panel.
 
 ## 4. Persist the blind measurement
 
-```bash
-verismill submit <experiment-dir> --candidate <candidate-ref>
-```
+Record the development round with `decision=select`. Selection seals the exact
+candidate bytes and transitions directly to `awaiting_blind_judgment`; there is
+no normal-path submission step. `verismill submit` remains only for imported
+candidates and evaluation-only workflows that intentionally have no development
+selection.
+
+Do not pause for a separate user request after selection. Continue the same
+round by invoking the required fresh panel.
 
 Register each judge receipt, then call
 `Experiment.record_absolute_blind_evaluation(judge_runs=..., assigned_lenses=...)`
@@ -138,7 +143,10 @@ verismill development <experiment-dir> --candidate <candidate-ref> \
 ```
 
 Inspect every rendered page before selection. Development scores guide the hill
-climb but never substitute for blind acceptance.
+climb but never substitute for blind acceptance. A `select` decision is also the
+handoff into required blind measurement, so do not select until the candidate is
+ready to seal and do not report completion until the resulting evaluation is
+recorded.
 
 ## 8. Close the cycle
 
@@ -158,3 +166,8 @@ push a `codex/` branch, and open a ready pull request—or update the open pull
 request that already owns the scope. Link the PR in the operator report. A harvest PR reports
 an asserted repair, never a score or resolved tell; fresh blind evidence is
 still required.
+
+The terminal condition for a normal round is `accepted` or `judged`, never
+`climbing` with a selected candidate and never `awaiting_blind_judgment` with an
+uninvoked panel. If judged, the same user request continues into the next climb
+unless an external blocker prevents progress.

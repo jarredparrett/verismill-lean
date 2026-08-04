@@ -152,6 +152,7 @@ DISQUALIFIERS = {
 # FM5 — k judges must COVER the tell space, not corroborate one reading.
 LENSES = ("arithmetic_and_dates", "procedural_and_citations",
           "forensic_and_visual")
+MIN_BLIND_PANEL_SIZE = len(LENSES)
 LENS_FOCUS = {
     "arithmetic_and_dates":
         "Weight recomputing every derived figure (deposit vs rent, totals, "
@@ -171,8 +172,8 @@ def assign_lenses(k: int) -> list[str]:
 
 
 def coverage_ok(assigned: list[str]) -> bool:
-    """A round with no forensic lens is not a forensic measurement (FM5)."""
-    return "forensic_and_visual" in assigned
+    """A blind measurement covers every complementary lens at least once."""
+    return set(LENSES).issubset(assigned)
 
 
 def build_absolute_brief(*, class_name: str, persona: str, lens: str) -> str:

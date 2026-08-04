@@ -24,9 +24,9 @@ verismill init --request "..." --id <experiment-id>
 verismill prepare <experiment-dir> --research <json> --rubric <json> --requirements <json>
 verismill source <experiment-dir> --name <name> --file <pdf>
 verismill emit <experiment-dir> --class <class> --builder-run <receipt> --explanation <json>
-verismill development <experiment-dir> --candidate <ref> --judge-run <receipt> --findings <json> --score <json> --decision continue
-verismill submit <experiment-dir> --candidate <ref>
-verismill judge <experiment-dir> --mode absolute --judge-run <receipt>
+verismill development <experiment-dir> --candidate <ref> --judge-run <receipt> --findings <json> --score <json> --decision select
+# selection automatically seals the candidate; continue immediately with k=3
+verismill judge <experiment-dir> --mode absolute --judge-run <receipt-1> --judge-run <receipt-2> --judge-run <receipt-3>
 verismill continue <experiment-dir>
 verismill report <experiment-dir> --out <report.md>
 verismill verify <experiment-dir>
@@ -147,6 +147,14 @@ You built it, so you do not judge it. If the same session measures and repairs,
 that is a **harvest** — legitimate, often the most productive kind of round, and
 it **claims no score**. The acceptance evidence is the next blind round, judged
 by agents that were not the fixer.
+
+**Do not stop or hand back after development selection.** `decision=select`
+automatically moves the experiment to `awaiting_blind_judgment`; invoke and
+record the fresh panel in the same user-triggered forge. If it fails, continue
+through tells, repair, re-emission, selection, and another blind measurement.
+The forge is complete only with accepted standing or a concrete external
+blocker. “PDF created,” “tests pass,” and “development selected” are milestones,
+not terminal outcomes.
 
 ## 6. Fix at the level the tell lives
 

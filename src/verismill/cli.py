@@ -69,6 +69,9 @@ def cmd_status(args) -> None:
         return
     print(f"{value['id']} revision {value['revision']}: {value['phase']}")
     print(f"  {value['request']}")
+    measurement = value.get("measurement")
+    if measurement:
+        print(f"  blind measurement: {measurement['status']}")
     for action in value.get("next_actions", []):
         print(f"  next: {action}")
 
@@ -121,6 +124,8 @@ def cmd_development(args) -> None:
                                        decision=args.decision,
                                        score=_json(args.score))
     print(ref)
+    if args.decision == "select":
+        print(f"{exp.state['id']}: selected candidate sealed; blind panel required")
 
 
 def cmd_tell(args) -> None:
@@ -300,7 +305,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--page", type=int)
     p.set_defaults(func=cmd_tell)
 
-    p = sub.add_parser("submit", help="seal a candidate for blind judgment")
+    p = sub.add_parser(
+        "submit", help="seal an imported candidate without development selection")
     p.add_argument("root", type=Path)
     p.add_argument("--candidate")
     p.set_defaults(func=cmd_submit)

@@ -6,8 +6,7 @@ import json
 
 import pytest
 
-from verismill import trace
-from verismill.climb import atlas, judges, orchestrator
+from verismill.climb import atlas, judges
 
 
 # -- atlas lifecycle -----------------------------------------------------------
@@ -124,50 +123,158 @@ def test_score_batch(trees, tmp_path):
     assert scores["trials_scored"] == 3
 
 
-# -- orchestrator --------------------------------------------------------------------
+# -- judges.protocol v0.2.0 (absolute review, min+veto) ----------------------
 
 
-def _orch(tmp_path):
-    bus = trace.TraceBus(tmp_path / "bus" / "events.jsonl", clock=lambda: 1_700_000_000.0)
-    return orchestrator.Orchestrator(tmp_path / "scores", bus), bus
+def _abs_verdict(**over):
+    """A well-formed absolute verdict; override any field."""
+    v = {
+        "authenticity": "synthetic", "confidence": 0.8,
+        "disqualifiers": {"executed_consistently": "pass",
+                          "signature_is_a_hand": "pass",
+                          "no_impossible_identifier": "pass"},
+        "dimension_scores": {d: 80 for d in judges.DIMENSIONS},
+        "tells": [],
+    }
+    v.update(over)
+    return v
 
 
-def test_accept_only_on_improvement(tmp_path):
-    orch, bus = _orch(tmp_path)
-    keys = [{"trial_id": f"t{i}", "mode": "synth_vs_real", "synthetic_side": "left"}
-            for i in range(4)]
-    def verdicts(n_correct):
-        v = {f"t{i}": {"pick": "left"} for i in range(n_correct)}
-        v.update({f"t{i}": {"pick": "right"} for i in range(n_correct, 4)})
-        return v
-    r1 = orch.on_judge_batch(keys=keys, verdicts=verdicts(4), spec_version="v1")
-    assert not r1["accepted"]                       # accuracy 1.0, no improvement over 1.0
-    r2 = orch.on_judge_batch(keys=keys, verdicts=verdicts(3), spec_version="v2")
-    assert r2["accepted"]                           # 0.75 < 1.0 - margin
-    r3 = orch.on_judge_batch(keys=keys, verdicts=verdicts(3), spec_version="v3")
-    assert not r3["accepted"]                       # no improvement over new best
-    r4 = orch.on_judge_batch(keys=keys, verdicts=verdicts(2), spec_version="v4")
-    assert r4["accepted"]                           # 0.5 < 0.75 - margin
-    events = trace.TraceBus.read(bus.path)
-    types = [e["event_type"] for e in events]
-    assert types.count("accept") == 2 and types.count("reject") == 2
-    assert orch.state["best_accuracy"] == 0.5
-    assert trace.TraceBus.verify(bus.path)
+def test_aggregate_is_min_not_mean():
+    """FM1: a strong dimension cannot buy back a weak one. Overall is the MIN
+    over dimensions, not their average."""
+    dims = dict.fromkeys(judges.DIMENSIONS, 93)
+    dims["forensic_authenticity"] = 40
+    agg = judges.aggregate_absolute(_abs_verdict(dimension_scores=dims))
+    assert agg["overall_score"] == 40           # not the ~85 mean
+    assert agg["coherence_profile"] > 40         # mean retained, informational
 
 
-def test_stall_detection_after_five_rejects(tmp_path):
-    orch, bus = _orch(tmp_path)
-    keys = [{"trial_id": "t", "mode": "synth_vs_real", "synthetic_side": "left"}]
-    for _ in range(5):
-        orch.on_judge_batch(keys=keys, verdicts={"t": {"pick": "left"}}, spec_version="v")
-    events = trace.TraceBus.read(bus.path)
-    assert any(e["event_type"] == "stall" for e in events)
+def test_disqualifier_vetoes_the_score():
+    """FM1: a failed disqualifier caps the score regardless of the dimensions —
+    the gate an unsigned lease scoring 60 was missing."""
+    dims = dict.fromkeys(judges.DIMENSIONS, 90)
+    v = _abs_verdict(dimension_scores=dims,
+                     disqualifiers={"executed_consistently": "fail",
+                                    "signature_is_a_hand": "fail",
+                                    "no_impossible_identifier": "pass"})
+    agg = judges.aggregate_absolute(v)
+    assert agg["overall_score"] == 25            # lowest failed cap wins
+    assert set(agg["failed_disqualifiers"]) == {"executed_consistently",
+                                                "signature_is_a_hand"}
 
 
-def test_checkpoint_written_on_accept(tmp_path):
-    orch, _ = _orch(tmp_path)
-    keys = [{"trial_id": "t", "mode": "synth_vs_real", "synthetic_side": "left"}]
-    orch.on_judge_batch(keys=keys, verdicts={"t": {"pick": "right"}}, spec_version="v9")
-    cps = list((tmp_path / "scores" / "checkpoints").iterdir())
-    assert len(cps) == 1
-    assert (cps[0] / "spec_version.txt").read_text().strip() == "v9"
+def test_parse_absolute_verdict_requires_full_answers():
+    """FM1/FM3: every disqualifier answered, every dimension scored."""
+    good = judges.parse_absolute_verdict(json.dumps(_abs_verdict()))
+    assert good["authenticity"] == "synthetic"
+    # missing a disqualifier answer
+    bad = _abs_verdict()
+    del bad["disqualifiers"]["signature_is_a_hand"]
+    with pytest.raises(ValueError, match="signature_is_a_hand"):
+        judges.parse_absolute_verdict(json.dumps(bad))
+    # a dimension out of range
+    bad2 = _abs_verdict()
+    bad2["dimension_scores"]["forensic_authenticity"] = 150
+    with pytest.raises(ValueError, match="0..100"):
+        judges.parse_absolute_verdict(json.dumps(bad2))
+
+
+def test_parse_absolute_verdict_accepts_region_tell():
+    """FM4: an image-domain tell carries page+bbox instead of a text quote."""
+    v = _abs_verdict(tells=[{"path": "lease.pdf",
+                             "quote_or_region": {"page": 4,
+                                                 "bbox_norm": [0.1, 0.2, 0.4, 0.3]},
+                             "rationale": "signature does not spell the name"}])
+    parsed = judges.parse_absolute_verdict(json.dumps(v))
+    assert parsed["tells"][0]["quote_or_region"]["page"] == 4
+
+
+def test_lens_assignment_covers_forensic():
+    """FM5: k=3 covers all lenses; any missing lens is incomplete measurement."""
+    assert judges.coverage_ok(judges.assign_lenses(3))
+    assert set(judges.assign_lenses(3)) == set(judges.LENSES)
+    assert not judges.coverage_ok(["arithmetic_and_dates", "procedural_and_citations"])
+    assert not judges.coverage_ok(["forensic_and_visual"] * 3)
+
+
+def test_absolute_brief_is_two_pass_and_omits_overall():
+    """FM3: the glance pass and the disqualifiers come before the deep read;
+    the judge never supplies an overall (the scorer owns it)."""
+    brief = judges.build_absolute_brief(class_name="lease_nj",
+                                        persona="NJ landlord-tenant attorney",
+                                        lens="forensic_and_visual")
+    assert brief.index("PASS 1 — GLANCE") < brief.index("PASS 2 — DEEP READ")
+    for did in judges.DISQUALIFIERS:
+        assert did in brief
+    assert "no overall score" in brief
+
+
+def test_score_absolute_batch_reports_distribution():
+    """The batch reports the harshest and mean per-judge overall and the
+    disqualifier fail counts — never one laundered number."""
+    verdicts = {
+        "J1": _abs_verdict(dimension_scores=dict.fromkeys(judges.DIMENSIONS, 88)),
+        "J2": _abs_verdict(disqualifiers={"executed_consistently": "fail",
+                                          "signature_is_a_hand": "pass",
+                                          "no_impossible_identifier": "pass"}),
+        "J3": _abs_verdict(),
+    }
+    out = judges.score_absolute_batch(verdicts, judges.assign_lenses(3))
+    assert out["overall_min"] == 25              # J2's veto
+    assert out["overall_min"] <= out["overall_mean"]
+    assert out["disqualifier_fail_counts"]["executed_consistently"] == 1
+    assert out["discrimination_accuracy"] == 1.0
+    assert out["coverage_ok"] is True
+
+
+# -- atlas: region tells + fix-verification (FM4, FM2) -----------------------
+
+
+def test_region_tell_dedupes_on_page(tmp_path):
+    """FM4: an image tell has no quote; it keys on (class, path, page)."""
+    a = atlas.Atlas(tmp_path / "atlas.json", corroboration_k=3)
+    for j in ("J1", "J2", "J3"):
+        a.record_region(tell_class="forensic.signature", path="lease.pdf",
+                        page=4, bbox_norm=[0.1, 0.2, 0.4, 0.3],
+                        rationale="scrawl doesn't spell the name",
+                        trial_id=j, round_no=2)
+    assert len(a.tells) == 1                      # one tell, three sightings
+    assert a.tells[0]["state"] == "corroborated"
+    assert a.tells[0]["locus"] == "region"
+
+
+def test_harvest_asserts_repair_only_nonfixer_resolves(tmp_path):
+    """FM2: a harvest may only assert a repair; resolving requires a later
+    round. Resolving something never asserted is refused."""
+    a = atlas.Atlas(tmp_path / "atlas.json", corroboration_k=1)
+    a.record(tell_class="forensic.execution_state", quote="Initials: ____",
+             path="lease.pdf", rationale="blank on a signed lease",
+             trial_id="J1", round_no=1)
+    a.assert_repair(tell_class="forensic.execution_state",
+                    quote="Initials: ____", round_no=1)
+    assert a.tells[0]["repair_status"] == "repair_asserted"
+    assert len(a.repair_asserted()) == 1
+    # a non-fixer round did not re-raise it -> resolve
+    a.resolve(tell_class="forensic.execution_state",
+              quote="Initials: ____", round_no=2)
+    assert a.tells[0]["repair_status"] == "resolved"
+    assert a.repair_asserted() == []
+    # cannot resolve one that was never asserted
+    a.record(tell_class="c2", quote="q2", path="p", rationale="r",
+             trial_id="J1", round_no=2)
+    with pytest.raises(ValueError, match="cannot resolve"):
+        a.resolve(tell_class="c2", quote="q2", round_no=2)
+
+
+def test_reraised_repair_reopens(tmp_path):
+    """FM2: a repair_asserted tell that a later round RE-RAISES did not hold —
+    it reopens rather than silently resolving."""
+    a = atlas.Atlas(tmp_path / "atlas.json", corroboration_k=1)
+    a.record(tell_class="forensic.signature", quote="same-hand scrawl",
+             path="lease.pdf", rationale="one hand", trial_id="J1", round_no=1)
+    a.assert_repair(tell_class="forensic.signature",
+                    quote="same-hand scrawl", round_no=1)
+    a.record(tell_class="forensic.signature", quote="same-hand scrawl",
+             path="lease.pdf", rationale="one hand", trial_id="J2", round_no=2)
+    assert a.tells[0]["repair_status"] == "reopened"

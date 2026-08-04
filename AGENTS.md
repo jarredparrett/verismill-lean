@@ -3,8 +3,8 @@
 Three things live here and nothing else:
 
 ```
-prompt    .claude/skills/    the lifecycle you run
-climber   src/verismill/     trace (the bus) + climb (atlas, judges, orchestrator)
+prompt    .agents/skills/    the lifecycle you run
+climber   src/verismill/     experiment facade + trace bus + atlas + judges
 result    libs/mattermill/   seeded document classes
 ```
 
@@ -25,30 +25,27 @@ distributions editable into the project venv before doing anything —
 `pip install -e . -e libs/mattermill` (plus `pytest`). Everything must then
 run offline (invariant 5).
 
-## `.foundry/` — your state, and it is not repo content
+## User space — experiment state, never repo content
 
-The climb's state is gitignored. You write it; a clone never carries it.
-Create what you need, when you need it:
+Each run is a self-contained experiment bundle under the operator's application
+data root. `verismill home` prints that root; `VERISMILL_HOME` overrides it.
+Do not place experiment state inside the clone unless the operator explicitly
+passes a project-local path. Create and mutate it through `Experiment` or the
+`verismill` CLI:
 
 ```
-.foundry/
-  spec.yaml          what this foundry is climbing: requirements, rubric, open findings
-  atlas.json         every tell, with its quote        → climb.atlas.Atlas
-  bus.jsonl          hash-chained record of every round → trace.TraceBus
-  reference/         sourced blanks and facsimiles, with provenance
-  rounds/<n>/        briefs, answer keys, verdicts, scores
-  artifacts/         emitted documents
+<user-data>/verismill/
+  experiments/<id>/
+    experiment.json  current phase and content-addressed pointers
+    objects/         immutable research, rubric, artifacts, and receipts
+    bus.jsonl         append-only hash-chained lifecycle history
+    atlas.json        quoted and image-region tells
+    work/             disposable authoring material
 ```
 
-Two rules about writing it:
-
-- **`atlas.json`** — append via `climb.atlas.Atlas.record(...)`, which dedupes
-  on (class, normalized quote) and counts *distinct* trials. Don't hand-roll
-  the JSON; one loud trial is not corroboration, and only the class enforces
-  that.
-- **`bus.jsonl`** — append-only hash chain via `trace.TraceBus.emit(...)`.
-  Never edit or reorder: `TraceBus.verify()` must stay true, and it is the
-  only reason a later reader should believe a score you report.
+Do not hand-write state, atlas, score, or bus files. Public lifecycle methods
+validate transitions, deduplicate tells, derive scores from judge receipts,
+and preserve object hashes. `verismill verify <experiment-dir>` must stay true.
 
 A tell's `path` is the **artifact path** the quote lives in — never a section
 name ("caption", "ordered ¶11"). A section name orphans the observation from
@@ -86,13 +83,13 @@ makes a planted fault findable and provable rather than ambient noise.
 
 **4. One capability test per requirement.** The test docstring names the
 requirement it protects (`"""acord.premium-foots: ..."""`). A requirement you
-accept in `.foundry/spec.yaml` without landing a test is a requirement you
+accept in the frozen experiment bundle without landing a test is a requirement you
 have not actually accepted.
 
 **5. No network in the render path.** `mattermill` and everything it imports
 must work offline. Reference acquisition is **authoring-time only**, done by
-`source-template`: its outputs land in `.foundry/reference/` and are read as
-files, never fetched at render time.
+`source-template`: its outputs are registered as content-addressed experiment
+objects and are read as files, never fetched at render time.
 
 **6. Forensic and period honesty.** Metadata describes the document the
 artifact claims to be: represented dates, not render time; `ModDate` equals
@@ -111,8 +108,8 @@ that scores 5.
 
 ## Role blindness
 
-Blindness here is **discipline, not mechanism** — nothing enforces it at
-runtime, so say which role you are acting in when a session spans several.
+Role views and identity/context freshness checks enforce part of the boundary;
+operators still must isolate sessions and say which role they are acting in.
 
 - A **builder** working ahead of a blind round must not read the atlas, the
   answer keys, or prior scores. Work from requirements only. Knowing which
@@ -129,6 +126,21 @@ runtime, so say which role you are acting in when a session spans several.
   provenance, never the repo. `judges.COVER_STORY` deliberately does not name
   the domain; naming it tells a judge what to be suspicious of.
 
+## Blind measurement is part of the build
+
+A forge does not end when a candidate renders or passes development review.
+Recording a development decision of `select` automatically seals that candidate
+and moves the experiment to `awaiting_blind_judgment`. Continue the same
+user-triggered workflow through a fresh panel of at least three independent
+judges covering every assigned lens. Do not ask the user to launch measurement
+as a separate follow-up, and never describe a selected development candidate as
+finished, accepted, or release-ready.
+
+If the panel fails, record its tells, continue the climb, repair or revise, and
+select again; selection starts the next blind measurement automatically. Only
+an accepted evaluation establishes standing. A genuine external blocker may
+stop the turn, but an unmeasured artifact may not be presented as completion.
+
 ## Before you commit
 
 ```bash
@@ -139,12 +151,29 @@ Both green, always. Then:
 
 - **Changed an emitter?** Bump `mattermill` version in `pyproject.toml`,
   `__init__.py`, and the README Status line.
-- **Changed a class's standing?** It lives in `registry.py` and nowhere else,
-  so the claim a caller sees and the claim in the README stay one object.
-  State the round and the score; never an adjective.
-- **Ran a round?** The measurement goes in `.foundry/`, which is not
-  committed — so the commit message is where the reasoning survives. Say what
-  the review found, what changed because of it, and what is still open.
+- **Measured a class?** Never copy the result into `registry.py`, a manifest,
+  or the README. `verismill classes` derives local standing from verified,
+  accepted user-owned experiments for the installed emitter version.
+- **Ran a round?** The measurement stays in the user's experiment store, not
+  the commit. The commit message must say what the review found, what changed
+  because of it, and what is still open.
 
 Never commit a fix without its measurement, or a measurement without saying
 what instrument produced it.
+
+## Measured defects must leave the workstation
+
+When an experiment exposes a repository defect and the agent changes code to
+repair it, local green tests are not the end of the lifecycle. The agent must:
+
+1. preserve the finding and asserted repair in the user-owned experiment;
+2. add the capability test, make the smallest repair, and run both test suites;
+3. commit the change with the experiment ID, measuring instrument, observed
+   tell, repair, and any remaining debt in the commit message;
+4. push a `codex/` branch and open a ready pull request with that evidence.
+
+If the current branch already has an open pull request whose scope includes the
+repair, update that pull request instead of opening a duplicate. Report the PR
+URL either way. A harvest remains unscored and the pull request must not imply
+that its repair has passed blind acceptance; only a fresh blind evaluation can
+do that.

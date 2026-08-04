@@ -441,6 +441,9 @@ def compose_msa(m: dict, defect: dict | None = None) -> list[dict]:
     sig("mcounsel", f"{mc['name']} (State Bar No. {mc['bar']}),")
     t("     Attorney Appointed for the Minor Children")
     t()
+    # An acknowledgment is one execution block. Starting it mid-page used to
+    # strand the notary name and commission on a mostly blank following page.
+    newpage()
     c("ACKNOWLEDGMENT")
     t()
     para(f"STATE OF CALIFORNIA, COUNTY OF {m['court_county']}.  On "
@@ -566,8 +569,9 @@ def compose_msa(m: dict, defect: dict | None = None) -> list[dict]:
          "party's custody.")
     t()
     t(f"Dated: {m['approval_date']}")
-    t()
-    sig("judge", f"HON. {m['judge']}", date=None)
+    L.append({"text": "", "sig": "judge"})
+    t("_" * 34)
+    t(f"HON. {m['judge']}")
     t("     JUDGE OF THE SUPERIOR COURT")
     return L
 
@@ -589,8 +593,8 @@ def _title(s: str) -> str:
 
 def _signers(m: dict) -> dict:
     """Who signs, with the name the pseudo-cursive engine draws from."""
-    return {"wife": (61, "Elizabeth James Parker"),
-            "husband": (62, "Nicholas Parker"),
+    return {"wife": (61, _title(m["wife"])),
+            "husband": (62, _title(m["husband"])),
             "hcounsel": (63, _title(m["husband_counsel"]["name"])),
             "wcounsel": (64, _title(m["wife_counsel"]["name"])),
             "notary": (65, _title(m["notary"]["name"])),
@@ -631,8 +635,9 @@ def _typed_pdf(lines: list[dict], rng: random.Random,
                 # separately initialed provision: typed labels + small marks
                 c.setFont(*FONT)
                 c.drawString(TEXT_X, y, ln["text"])
-                for x_off, (seed, initials) in ((225, (61, "E J P")),
-                                                (475, (62, "N D P"))):
+                for x_off, signer in ((225, "wife"), (475, "husband")):
+                    seed, name = signers[signer]
+                    initials = " ".join(part[0] for part in name.split())
                     png = assets.signature_png(seed, name=initials)
                     ir = ImageReader(io.BytesIO(png))
                     iw, ih = ir.getSize()

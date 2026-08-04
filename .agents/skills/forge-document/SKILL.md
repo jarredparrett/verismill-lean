@@ -13,15 +13,45 @@ physically *is*, and whether it has been sourced enough to build.
 Read `AGENTS.md` first if you have not this session. The invariants there are
 what the capability tests exist to protect.
 
+## Experiment framework (current path)
+
+For a user-facing experiment, create and drive a persisted experiment rather
+than writing round files by hand. Omit the path to create it in the operator's
+data directory, then use the printed path. The CLI is the durable state machine:
+
+```bash
+verismill init --request "..." --id <experiment-id>
+verismill prepare <experiment-dir> --research <json> --rubric <json> --requirements <json>
+verismill source <experiment-dir> --name <name> --file <pdf>
+verismill emit <experiment-dir> --class <class> --builder-run <receipt> --explanation <json>
+verismill development <experiment-dir> --candidate <ref> --judge-run <receipt> --findings <json> --score <json> --decision select
+# selection automatically seals the candidate; continue immediately with k=3
+verismill judge <experiment-dir> --mode absolute --judge-run <receipt-1> --judge-run <receipt-2> --judge-run <receipt-3>
+verismill continue <experiment-dir>
+verismill report <experiment-dir> --out <report.md>
+verismill verify <experiment-dir>
+```
+
+Every transition, artifact, model receipt, rubric revision, tell, repair, and
+score belongs in the experiment store. Use `status`, `verify`, and
+`replay`/`rerun` to resume or reproduce it. Different models are ordinary
+provider-neutral builder or judge receipts; record provider, model, role,
+prompt hash, and exact input/output hashes while keeping the rubric fixed for
+a comparable round.
+
+Treat the frozen preparation bundle as the experiment's source of truth.
+
 **Never skip to step 4.** A document authored from memory reads as directionally
-correct and fails a real look. `.claude/skills/forge-document/worked-example-1642.md`
+correct and fails a real look. `worked-example-1642.md`
 is the full trace of one of these requests, including the round it failed and why.
 
 ## 0. Does the class already exist?
 
 ```bash
-grep -A2 "^  - name:" .foundry/spec.yaml | grep name   # declared tools
-ls libs/mattermill/src/mattermill/                             # emitters
+verismill status <experiment-dir> --json
+verismill classes
+rg "CLASSES|def emit" libs/mattermill/src/mattermill/registry.py
+ls libs/mattermill/src/mattermill/
 ```
 
 If it exists, **emit — do not rebuild.** A second emitter for an existing class
@@ -92,9 +122,9 @@ The contract is what makes realism testable rather than arguable. It carries:
 That third part is the one people skip, and it is the one that stops the next
 builder from inventing what you could see but could not read.
 
-Then enter requirements in `.foundry/spec.yaml` — one per property a test
-can fail, with a meta-build note saying why the tool was admitted. If you cannot
-state how a test would fail, it is not a requirement yet.
+Then enter requirements in the experiment's preparation bundle — one per
+property a test can fail, with a note saying why the tool was admitted. If you
+cannot state how a test would fail, it is not a requirement.
 
 ## 4. Build
 
@@ -118,6 +148,14 @@ that is a **harvest** — legitimate, often the most productive kind of round, a
 it **claims no score**. The acceptance evidence is the next blind round, judged
 by agents that were not the fixer.
 
+**Do not stop or hand back after development selection.** `decision=select`
+automatically moves the experiment to `awaiting_blind_judgment`; invoke and
+record the fresh panel in the same user-triggered forge. If it fails, continue
+through tells, repair, re-emission, selection, and another blind measurement.
+The forge is complete only with accepted standing or a concrete external
+blocker. “PDF created,” “tests pass,” and “development selected” are milestones,
+not terminal outcomes.
+
 ## 6. Fix at the level the tell lives
 
 - a wrong or incoherent value → fix the **sampler** so it cannot recur; do not
@@ -138,8 +176,10 @@ Answer "is it realistic?" with a measurement, not an adjective:
 > italic serif where a secretary hand belongs.
 
 State what the emitter guarantees by construction, what the defect hooks break,
-and what remains open with what it would take to close it. A class that has
-never been judged is `v1, unreviewed` — say that rather than implying otherwise.
+and what remains open with what it would take to close it. Read measurements
+from the active verified experiment or `verismill classes`, never from package
+metadata. If no accepted local experiment exists for the installed emitter
+version, say `no local standing available` rather than implying otherwise.
 
 ---
 
@@ -152,9 +192,15 @@ pip install -e . -e libs/mattermill && pip install pytest
 ```
 
 Everything after that runs offline. Reference acquisition is authoring-time
-only — its outputs are committed artifacts, never runtime fetches.
+only — its outputs are persisted, content-addressed experiment objects, never
+runtime fetches.
 
-Before committing: both suites green, the version bumped if an emitter changed,
-the demo regenerated and captured with its sidecar manifest, and the round's
-atlas and bus entries committed *with* the fix. Never a fix without its
-measurement, or a measurement without saying what instrument produced it.
+Before committing code: both suites green, the version bumped if an emitter
+changed, and the candidate regenerated with its sidecar manifest. Experiment
+state remains in the operator's data directory and must verify cleanly. Preserve
+the round reasoning in the commit message: never a fix without its measurement,
+or a measurement without saying what instrument produced it. A repository
+change discovered by the experiment must be pushed on a `codex/` branch and
+published as a ready pull request (or added to the open pull request that
+already owns the scope); returning with an unpushed local repair is not a
+completed forge.

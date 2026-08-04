@@ -1,4 +1,4 @@
-"""Public-corpus hygiene guard: no real-world entity identifiers.
+"""Public-corpus hygiene guard for prohibited default-world identifiers.
 
 Two halves, because a name can enter an artifact two ways. The source scan
 catches identifiers welded into a module's default canon. The emit scan
@@ -45,6 +45,13 @@ FORBIDDEN = [
     "hallie parker",
     "anne james",
     "queen elizabeth 2",
+    # A real Hoboken apartment building that was previously shipped as the
+    # lease emitter's default world.
+    "the jordan",
+    "1200 clinton",
+    # Address fragments removed from the deed default canon.
+    "18 larkspur lane",
+    "green village road",
 ]
 
 TEXT_DIRS = ["src", "libs"]
@@ -58,7 +65,8 @@ def _text_files():
             continue
         for p in sorted(base.rglob("*")):
             if (p.is_file() and p.suffix.lower() in TEXT_SUFFIXES
-                    and "__pycache__" not in p.parts):
+                    and not {"__pycache__", "build", "dist"}.intersection(p.parts)
+                    and not any(part.endswith(".egg-info") for part in p.parts)):
                 yield p
 
 
@@ -67,10 +75,9 @@ def _offenders(body: str, label: str) -> list[str]:
     return [f"{label}: {n}" for n in FORBIDDEN if n in body]
 
 
-def test_no_real_world_entities_in_source_tree():
-    """no-real-world-entities: the climber and the emitters — including every
-    shipped default canon — carry no real company, agency, or trademarked-index
-    name. Invented names keep the texture without the exposure."""
+def test_no_forbidden_default_entities_in_source_tree():
+    """default-world-hygiene: known third-party worlds and real properties do
+    not re-enter shipped canon or generator source."""
     offenders = []
     for p in _text_files():
         offenders += _offenders(p.read_text(errors="ignore"),
@@ -78,8 +85,8 @@ def test_no_real_world_entities_in_source_tree():
     assert not offenders, "real-world identifiers present:\n" + "\n".join(offenders)
 
 
-def test_no_real_world_entities_in_emitted_artifacts():
-    """no-real-world-entities, at the only place that finally settles it: the
+def test_no_forbidden_default_entities_in_emitted_artifacts():
+    """default-world-hygiene, at the only place that finally settles it: the
     rendered bytes. Every registered class is emitted at a fixed seed and its
     text layer read back — for the scan-based classes that is the invisible
     OCR layer, which is exactly the surface an extraction tool would see."""

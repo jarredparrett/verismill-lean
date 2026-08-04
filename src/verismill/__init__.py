@@ -1,12 +1,20 @@
-"""verismill — a prompt, a hill climber, and a result.
+"""verismill — persistent experiments for climbing synthetic documents.
 
-    prompt   .claude/skills/   the lifecycle an agent runs
-    climber  this package      trace (the bus) + climb (atlas, judges, orchestrator)
+    prompt   .agents/skills/   the lifecycle an agent runs
+    climber  this package      experiment facade + trace bus + atlas + judges
     result   mattermill        seeded document classes
 
-The climb's own state — spec, atlas, bus, scores, references — is NOT repo
-content. It lives in an untraced `.foundry/` the operating agent writes, so a
-clone carries the instrument and none of one foundry's accumulated findings.
+The low-level atlas, judge harness, source tooling, and trace bus remain
+available.  :class:`Experiment` is the public lifecycle and persistence facade.
 """
 
-__version__ = "0.2.0"
+from .agents import AgentBackend, AgentTask
+from .experiment import Experiment
+from .catalog import class_catalog, derive_local_standings, experiments_root, user_data_root
+from .schema import AgentRun, ModelConfig, Phase
+
+__all__ = ["AgentBackend", "AgentRun", "AgentTask", "Experiment", "ModelConfig",
+           "Phase", "class_catalog", "derive_local_standings", "experiments_root",
+           "user_data_root"]
+
+__version__ = "0.6.0"

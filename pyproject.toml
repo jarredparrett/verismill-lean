@@ -4,14 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "verismill"
-version = "0.2.0"
-description = "A hill climber for synthetic documents: blind judges, an atlas of tells, and a hash-chained record of every round."
+version = "0.6.0"
+description = "Persistent, human-interpretable experiments for hill climbing synthetic documents with blind evaluation."
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = "MIT"
 # The climber is stdlib-only on purpose: it is the part that has to still run
 # in five years to re-verify a bus chain. Rendering deps live in mattermill.
 dependencies = []
+
+[project.scripts]
+verismill = "verismill.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

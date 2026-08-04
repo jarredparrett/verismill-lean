@@ -2,5 +2,5 @@
 # suite runs against this set). Consumers may use the looser ranges in
 # pyproject.toml; reproducible artifact pipelines should pin these.
 reportlab==4.4.3
-openpyxl==3.1.5
 Pillow==11.3.0
+pypdfium2==5.12.1

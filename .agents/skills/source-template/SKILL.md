@@ -55,26 +55,26 @@ the era-specific parts are calibrated separately.
 **Operator-supplied** (they pasted a path) — register it as-is:
 
 ```bash
-PYTHONPATH=src python -m verismill.source \
-    --name acord126 --file "~/Downloads/Acord126 GL.pdf"
+verismill source <experiment-dir> \
+    --name acord126 --file "/absolute/path/Acord126 GL.pdf"
 ```
 
 **Sourced yourself** — search for an authoritative blank copy, get a direct
 PDF URL, then:
 
 ```bash
-PYTHONPATH=src python -m verismill.source \
-    --name acord125 --url "https://example.org/acord-125.pdf"
+verismill source <experiment-dir> \
+    --name acord125 --file /path/to/downloaded/acord125.pdf
 ```
 
 Prefer issuer, regulator, or government sources over aggregators. Landing
 pages usually are not the PDF; find the direct file link. The tool rejects
 non-PDF payloads (an HTML error page saved as `.pdf` is a common trap).
 
-Either path writes `.foundry/reference/<name>/`:
-`source.pdf` (gitignored), `provenance.json` (origin, sha256, byte count,
-retrieval date), and `contract.json` (per-page text lines + proposed
-markers).
+The experiment-scoped command writes a content-addressed reference bundle in
+the experiment object store and records its reference in persisted state and
+the bus (provenance, sha256, byte count, and contract metadata). Use
+`verismill status` and `verismill verify` to inspect and validate it.
 
 ## 2. Read the artifact yourself
 
@@ -82,7 +82,7 @@ Rasterize and **look at every page** before trusting the text extraction:
 
 ```python
 import pypdfium2 as pdfium
-doc = pdfium.PdfDocument(".foundry/reference/<name>/source.pdf")
+doc = pdfium.PdfDocument("<resolved reference path>/source.pdf")
 for i, page in enumerate(doc):
     page.render(scale=2.0).to_pil().save(f"/tmp/ref_p{i}.png")
 ```

@@ -1,5 +1,9 @@
 # Worked example: "I need a 1642 bill of sale for a ship"
 
+> Historical trace: this predates the persisted experiment framework. Preserve
+> its sourcing and realism lessons, but execute new work through
+> `init/prepare/agent-run/emit/development/submit/judge/continue`.
+
 The complete trace that produced `.foundry/artifacts/bill_of_sale_1642.pdf`. Read it
 for the shape of the process, and for the one lesson that cost a whole round:
 **the dimension you did not source is the dimension that scores 5.**
@@ -57,7 +61,7 @@ quoted exactly from the source, plus a **guard list** of things the source
 proved do *not* belong (no notary, no *Anno Domini*, no printed-form furniture,
 no "Signed, sealed").
 
-`.foundry/spec.yaml` — six requirements, each a property a test can fail:
+The frozen experiment requirements — six properties a test can fail:
 `billofsale.clause-contract`, `.regnal-dating`, `.couplings`,
 `.manuscript-scan`, `.defect-delta-hooks`, `seeded.everywhere`.
 

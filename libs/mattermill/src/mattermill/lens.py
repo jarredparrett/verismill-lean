@@ -4,8 +4,8 @@ One library defines both sides — an emitter renders a feature, the gates and
 the capability tests verify it here, and "what counts as a feature" can never
 drift between them.
 
-PDF only. The xlsx and eml inspectors went with the writers they verified when
-the pre-registry forge was trimmed; every document class ships as PDF.
+Every registered document class ships as PDF, so the inspection surface is
+deliberately PDF-only.
 """
 
 from __future__ import annotations
@@ -60,6 +60,5 @@ def pdf_info(path: str | Path) -> dict:
         **meta,
         "bates_stamps": sorted({b.decode() for b in _BATES.findall(content)}),
     }
-
 
 

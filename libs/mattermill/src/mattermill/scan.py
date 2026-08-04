@@ -85,6 +85,15 @@ def rescan(vector: bytes, *, rng: random.Random, metadata: dict,
             c.drawText(t)
         c.showPage()
     c.save()
-    out = legalpdf._fix_dates(buf.getvalue(), created=metadata.get("created"),
+    # ReportLab writes its own name in harmless PDF comments even after the
+    # Info dictionary has been set to the actual capture device.  A scanner
+    # export should not leak the authoring renderer in those comments.  These
+    # padded same-length substitutions preserve every xref offset.
+    captured = buf.getvalue()
+    for old in (b"ReportLab Generated PDF document (opensource)",
+                b"ReportLab generated PDF document -- digest (opensource)"):
+        replacement = b"Captured document image archive".ljust(len(old), b" ")
+        captured = captured.replace(old, replacement)
+    out = legalpdf._fix_dates(captured, created=metadata.get("created"),
                               modified=metadata.get("modified"))
     return legalpdf._fix_id(out)

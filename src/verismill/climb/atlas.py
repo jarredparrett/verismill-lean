@@ -21,6 +21,11 @@ from pathlib import Path
 STATES = ("reported", "corroborated", "clause_candidate", "promoted",
           "stale", "regression_probe", "archived")
 
+# Fix-verification axis (judges.protocol v0.2.0, FM2), orthogonal to the
+# corroboration lifecycle above. A HARVEST may only assert a repair; only a
+# later blind round by non-fixers may resolve it — by not re-raising it.
+REPAIR_STATES = (None, "repair_asserted", "resolved", "reopened")
+
 
 def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip().lower()
@@ -45,15 +50,46 @@ class Atlas:
         sighting in a new trial adds evidence, not a new entry."""
         key = (tell_class, _norm(quote))
         for tell in self.tells:
-            if (tell["tell_class"], _norm(tell["quote"])) == key:
+            if tell.get("locus", "text") == "text" and \
+                    (tell["tell_class"], _norm(tell["quote"])) == key:
                 if trial_id not in tell["sightings"]:
                     tell["sightings"].append(trial_id)
                     tell["last_seen_round"] = round_no
+                    self._reopen_if_repaired(tell, round_no)
                     self._maybe_corroborate(tell)
                 return tell
         tell = {
-            "tell_class": tell_class, "quote": quote, "path": path,
-            "rationale": rationale, "state": "reported",
+            "tell_class": tell_class, "quote": quote, "locus": "text",
+            "path": path, "rationale": rationale, "state": "reported",
+            "repair_status": None, "sightings": [trial_id],
+            "first_seen_round": round_no, "last_seen_round": round_no,
+        }
+        self.tells.append(tell)
+        self._maybe_corroborate(tell)
+        return tell
+
+    def record_region(self, *, tell_class: str, path: str, page: int,
+                      bbox_norm, rationale: str, trial_id: str,
+                      round_no: int) -> dict:
+        """Record one IMAGE-domain sighting — a tell with no text span (a
+        signature that doesn't spell the name, a blank initial line, templated
+        whitespace). FM4: these were unrecordable in a quote-keyed atlas, so
+        the whole forensic/visual failure class could not be climbed against.
+        Dedupes on (class, path, page)."""
+        key = (tell_class, path, int(page))
+        for tell in self.tells:
+            if tell.get("locus") == "region" and \
+                    (tell["tell_class"], tell["path"], tell["page"]) == key:
+                if trial_id not in tell["sightings"]:
+                    tell["sightings"].append(trial_id)
+                    tell["last_seen_round"] = round_no
+                    self._reopen_if_repaired(tell, round_no)
+                    self._maybe_corroborate(tell)
+                return tell
+        tell = {
+            "tell_class": tell_class, "quote": "", "locus": "region",
+            "path": path, "page": int(page), "bbox_norm": list(bbox_norm),
+            "rationale": rationale, "state": "reported", "repair_status": None,
             "sightings": [trial_id],
             "first_seen_round": round_no, "last_seen_round": round_no,
         }
@@ -64,6 +100,66 @@ class Atlas:
     def _maybe_corroborate(self, tell: dict) -> None:
         if tell["state"] == "reported" and len(tell["sightings"]) >= self.k:
             tell["state"] = "corroborated"
+
+    # -- fix verification (FM2) ---------------------------------------------
+    # A harvest is unblinded and self-graded, so it may ASSERT a repair but may
+    # not RETIRE the tell. A tell is 'resolved' only when a later blind round
+    # judged by NON-FIXERS fails to re-raise it. If such a round re-raises it,
+    # the fix did not hold and the tell reopens.
+
+    def _match(self, tell_class: str, *, quote: str | None = None,
+               path: str | None = None, page: int | None = None) -> dict:
+        for tell in self.tells:
+            if tell["tell_class"] != tell_class:
+                continue
+            if quote is not None and tell.get("locus", "text") == "text" \
+                    and _norm(tell["quote"]) == _norm(quote):
+                return tell
+            if page is not None and tell.get("locus") == "region" \
+                    and tell["path"] == path and tell["page"] == int(page):
+                return tell
+        raise KeyError(f"tell not found: {tell_class} "
+                       f"(quote={quote!r} path={path!r} page={page!r})")
+
+    def _reopen_if_repaired(self, tell: dict, round_no: int) -> None:
+        """A tell re-raised after its repair was asserted (or resolved) means
+        the fix did not hold — it cannot be counted as gone when it just
+        appeared."""
+        if tell.get("repair_status") in ("repair_asserted", "resolved"):
+            tell["repair_status"] = "reopened"
+            tell["reopened_round"] = round_no
+
+    def assert_repair(self, *, tell_class: str, quote: str | None = None,
+                      path: str | None = None, page: int | None = None,
+                      round_no: int) -> dict:
+        """A harvest asserts a fix: repair_asserted, never resolved."""
+        tell = self._match(tell_class, quote=quote, path=path, page=page)
+        tell["repair_status"] = "repair_asserted"
+        tell["repaired_round"] = round_no
+        return tell
+
+    def resolve(self, *, tell_class: str, quote: str | None = None,
+                path: str | None = None, page: int | None = None,
+                round_no: int) -> dict:
+        """A blind round by non-fixers confirms a repair_asserted tell did not
+        recur. Only reachable from repair_asserted — a fix cannot be resolved
+        without first being asserted, and a reopened one must be re-asserted."""
+        tell = self._match(tell_class, quote=quote, path=path, page=page)
+        if tell.get("repair_status") != "repair_asserted":
+            raise ValueError(
+                f"cannot resolve from repair_status "
+                f"{tell.get('repair_status')!r}; only a harvest-asserted repair "
+                f"that a non-fixer round did not re-raise may be resolved")
+        tell["repair_status"] = "resolved"
+        tell["resolved_round"] = round_no
+        return tell
+
+    def repair_asserted(self) -> list[dict]:
+        """Tells whose fix is asserted but not yet verified by a non-fixer
+        round. They remain open in the experiment until a round resolves them;
+        a harvest moves the code, not the measurement."""
+        return [t for t in self.tells
+                if t.get("repair_status") == "repair_asserted"]
 
     # -- lifecycle ----------------------------------------------------------
 

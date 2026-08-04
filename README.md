@@ -131,6 +131,21 @@ Provider adapters can call `Experiment.run_absolute_blind_measurement()` after
 development selection to invoke, persist, and score the complete model panel in
 one operation.
 
+Downstream products materialize an emitted candidate through the public
+experiment facade rather than reading the experiment's object store:
+
+```python
+result = experiment.artifact_result(candidate_ref)
+pdf_bytes = result["artifact"]
+manifest = result["manifest"]
+attestation = result["attestation"]
+```
+
+The attestation binds the exact bytes and manifest to the experiment revision,
+frozen rubric and requirements, emitter version, measurement state, standing,
+and a fresh verification result. A downstream content-addressed store can copy
+the result without retaining a filesystem dependency on the experiment.
+
 Useful recovery commands:
 
 ```bash

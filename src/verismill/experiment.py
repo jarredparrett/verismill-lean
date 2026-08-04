@@ -328,6 +328,68 @@ class Experiment:
             artifact=artifact, manifest=manifest, builder_run=builder_run,
             explanation=explanation, emitter=emitter)
 
+    def artifact_result(self, candidate: str | None = None) -> dict:
+        """Materialize one recorded candidate through the public facade.
+
+        Downstream products need the exact artifact bytes and enough trusted
+        provenance to copy them into their own content-addressed stores.  They
+        must not reach through :class:`Experiment` into its private object
+        graph to do so.  This method returns the artifact and manifest plus an
+        attestation that binds both to the experiment, frozen instrument,
+        emitter, measurement status, and verification result.
+        """
+        candidate = candidate or self.state["refs"].get("current_candidate")
+        if candidate is None:
+            raise ValueError("artifact result requires a recorded candidate")
+        if candidate not in self.state["candidates"]:
+            raise ValueError("artifact result candidate is not part of this experiment")
+
+        record = self.store.read_json(candidate)
+        artifact = self.store.read_bytes(record["artifact"])
+        manifest = self.store.read_json(record["manifest"])
+        evaluations = []
+        for ref in self.state["evaluations"]:
+            evaluation = self.store.read_json(ref)
+            if evaluation.get("candidate") == candidate:
+                evaluations.append(ref)
+        standing = self.state.get("standing")
+        if standing and standing.get("candidate") == candidate:
+            measurement_status = "accepted"
+            candidate_standing = standing
+        elif evaluations:
+            measurement_status = "not_accepted"
+            candidate_standing = None
+        elif candidate == self.state["refs"].get("current_candidate") and \
+                self.phase == Phase.AWAITING_BLIND_JUDGMENT:
+            measurement_status = "required"
+            candidate_standing = None
+        else:
+            measurement_status = "development_only"
+            candidate_standing = None
+
+        return {
+            "schema_version": "1.0",
+            "artifact": artifact,
+            "manifest": manifest,
+            "attestation": {
+                "schema_version": "1.0",
+                "experiment_id": self.state["id"],
+                "experiment_revision": self.state["revision"],
+                "candidate": candidate,
+                "artifact_hash": record["artifact"],
+                "manifest_hash": record["manifest"],
+                "emitter": record.get("emitter"),
+                "rubric_hash": record["rubric"],
+                "requirements_hash": record["requirements"],
+                "measurement": {
+                    "status": measurement_status,
+                    "evaluation": evaluations[-1] if evaluations else None,
+                    "standing": candidate_standing,
+                },
+                "verification": self.verify(),
+            },
+        }
+
     def record_development_round(self, *, candidate: str,
                                  judge_runs: list[str], findings: list[dict],
                                  decision: str, score: dict) -> str:

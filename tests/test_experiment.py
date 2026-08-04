@@ -166,6 +166,46 @@ def test_full_rejected_cycle_is_resumable_and_replayable(tmp_path):
         resumed.record_absolute_blind_evaluation(judge_runs=blind)
 
 
+def test_artifact_result_is_a_public_materialization_boundary(tmp_path, monkeypatch):
+    """experiment.artifact-result: downstreams receive bytes and attestation
+    without reading the private object store."""
+    exp = prepared(tmp_path)
+    candidate_ref = emitted_candidate(
+        exp, monkeypatch, class_name="test_class", mattermill="test-version")
+
+    result = exp.artifact_result(candidate_ref)
+
+    assert result["schema_version"] == "1.0"
+    assert result["artifact"] == b"%PDF-1.4\ntest_class-test-version\n"
+    assert result["manifest"]["sha256"] == result["attestation"]["artifact_hash"]
+    assert result["attestation"] == {
+        "schema_version": "1.0",
+        "experiment_id": "standard_form",
+        "experiment_revision": 1,
+        "candidate": candidate_ref,
+        "artifact_hash": result["manifest"]["sha256"],
+        "manifest_hash": exp.view("user")["current_candidate"]["manifest"],
+        "emitter": {"class": "test_class", "mattermill": "test-version"},
+        "rubric_hash": exp.state["refs"]["rubric"],
+        "requirements_hash": exp.state["refs"]["requirements"],
+        "measurement": {
+            "status": "development_only", "evaluation": None, "standing": None,
+        },
+        "verification": exp.verify(),
+    }
+    assert result["attestation"]["verification"]["ok"]
+    assert Experiment.open(exp.root).artifact_result()["artifact"] == result["artifact"]
+
+
+def test_artifact_result_rejects_missing_or_foreign_candidate(tmp_path):
+    """experiment.artifact-result-membership: only recorded candidates export."""
+    exp = prepared(tmp_path)
+    with pytest.raises(ValueError, match="recorded candidate"):
+        exp.artifact_result()
+    with pytest.raises(ValueError, match="not part of this experiment"):
+        exp.artifact_result(sha256("foreign"))
+
+
 def test_harvest_repair_is_persisted_but_not_resolved(tmp_path):
     exp = prepared(tmp_path)
     candidate(exp)

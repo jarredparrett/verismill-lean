@@ -126,6 +126,21 @@ operators still must isolate sessions and say which role they are acting in.
   provenance, never the repo. `judges.COVER_STORY` deliberately does not name
   the domain; naming it tells a judge what to be suspicious of.
 
+## Blind measurement is part of the build
+
+A forge does not end when a candidate renders or passes development review.
+Recording a development decision of `select` automatically seals that candidate
+and moves the experiment to `awaiting_blind_judgment`. Continue the same
+user-triggered workflow through a fresh panel of at least three independent
+judges covering every assigned lens. Do not ask the user to launch measurement
+as a separate follow-up, and never describe a selected development candidate as
+finished, accepted, or release-ready.
+
+If the panel fails, record its tells, continue the climb, repair or revise, and
+select again; selection starts the next blind measurement automatically. Only
+an accepted evaluation establishes standing. A genuine external blocker may
+stop the turn, but an unmeasured artifact may not be presented as completion.
+
 ## Before you commit
 
 ```bash

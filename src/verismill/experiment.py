@@ -360,6 +360,7 @@ class Experiment:
             "findings": findings,
             "decision": decision,
             "score": score,
+            "blind_measurement_required": decision == "select",
         }
         ref = self.store.put_json(record)
         self.state["development_rounds"].append(ref)
@@ -371,6 +372,10 @@ class Experiment:
                      verdicts={"decision": decision, "score": score,
                                "findings": len(findings)})
         self._save()
+        if decision == "select":
+            self._transition(
+                Phase.AWAITING_BLIND_JUDGMENT,
+                reason="development selection automatically sealed for blind measurement")
         return ref
 
     def record_tell(self, *, tell_class: str, path: str, rationale: str,
@@ -481,6 +486,12 @@ class Experiment:
     # -- blind evaluation ------------------------------------------------
 
     def submit_for_blind_judgment(self, candidate: str | None = None) -> None:
+        """Seal a candidate without a development selection.
+
+        Normal forge and climb workflows use ``decision='select'``, which seals
+        automatically. This explicit boundary remains for imported candidates
+        and evaluation-only reruns.
+        """
         if self.phase != Phase.CLIMBING:
             raise ValueError("only a climbing experiment can be submitted")
         candidate = candidate or self.state["refs"].get("current_candidate")
@@ -495,10 +506,15 @@ class Experiment:
                              models: list[ModelConfig]) -> list[AgentTask]:
         """Build isolated absolute-review tasks for a heterogeneous panel."""
         if self.phase != Phase.AWAITING_BLIND_JUDGMENT:
-            raise ValueError("blind judge tasks require a submitted candidate")
+            raise ValueError("blind judge tasks require a sealed candidate")
         if not models:
             raise ValueError("at least one blind judge model is required")
         from .climb import judges
+
+        if len(models) < judges.MIN_BLIND_PANEL_SIZE:
+            raise ValueError(
+                f"absolute blind measurement requires at least "
+                f"{judges.MIN_BLIND_PANEL_SIZE} fresh judges")
 
         candidate = self.store.read_json(self.state["refs"]["current_candidate"])
         artifact = self.store.read_bytes(candidate["artifact"])
@@ -519,6 +535,28 @@ class Experiment:
                       model=model)
             for model, lens in zip(models, lenses, strict=True)
         ]
+
+    def run_absolute_blind_measurement(
+            self, *, class_name: str, persona: str,
+            models: list[ModelConfig], backends: list[Any]) -> str:
+        """Invoke and persist one complete absolute blind panel.
+
+        Development selection has already sealed the candidate. This method is
+        the provider-neutral integrated continuation: build isolated tasks,
+        invoke every model arm, persist the receipts, score the required lens
+        set, and transition to ``accepted`` or ``judged``.
+        """
+        if len(backends) != len(models):
+            raise ValueError("one backend is required for every blind judge model")
+        from .climb import judges
+
+        tasks = self.absolute_judge_tasks(
+            class_name=class_name, persona=persona, models=models)
+        judge_runs = [self.invoke_agent(backend, task)
+                      for backend, task in zip(backends, tasks, strict=True)]
+        return self.record_absolute_blind_evaluation(
+            judge_runs=judge_runs,
+            assigned_lenses=judges.assign_lenses(len(judge_runs)))
 
     def _contaminated_identities(self) -> tuple[set[str], set[str]]:
         agents, contexts = set(), set()
@@ -638,8 +676,10 @@ class Experiment:
         """Parse and score existing absolute-review judge receipts."""
         from .climb import judges
 
-        if not judge_runs:
-            raise ValueError("absolute evaluation requires at least one blind judge run")
+        if len(judge_runs) < judges.MIN_BLIND_PANEL_SIZE:
+            raise ValueError(
+                f"absolute blind measurement requires at least "
+                f"{judges.MIN_BLIND_PANEL_SIZE} fresh judges")
         if assigned_lenses is not None and len(assigned_lenses) != len(judge_runs):
             raise ValueError("one lens is required for every blind judge run")
         verdict_map = {}
@@ -650,6 +690,8 @@ class Experiment:
             verdict_map[run.run_id] = verdict
             ordered.append(verdict)
         assigned_lenses = assigned_lenses or judges.assign_lenses(len(judge_runs))
+        if not judges.coverage_ok(assigned_lenses):
+            raise ValueError("absolute blind measurement must cover every judge lens")
         scores = judges.score_absolute_batch(verdict_map, assigned_lenses)
         return self._record_blind_evaluation(
             judge_runs=judge_runs, verdicts=ordered, scores=scores,
@@ -661,6 +703,10 @@ class Experiment:
         """Parse and score existing pairwise judge receipts against hidden keys."""
         from .climb import judges
 
+        if len(judge_runs) < judges.MIN_BLIND_PANEL_SIZE:
+            raise ValueError(
+                f"pairwise blind measurement requires at least "
+                f"{judges.MIN_BLIND_PANEL_SIZE} fresh judges")
         if not keys or len(keys) != len(judge_runs):
             raise ValueError("one hidden trial key is required for every judge run")
         verdict_map = {}
@@ -707,8 +753,8 @@ class Experiment:
             Phase.PREPARING: ["complete research", "define requirements",
                               "freeze rubric"],
             Phase.RUBRIC_FROZEN: ["record a baseline candidate"],
-            Phase.CLIMBING: ["run a development round", "submit selected candidate"],
-            Phase.AWAITING_BLIND_JUDGMENT: ["invoke fresh blind judges"],
+            Phase.CLIMBING: ["run development until a candidate is selected"],
+            Phase.AWAITING_BLIND_JUDGMENT: ["complete the required fresh blind panel"],
             Phase.JUDGED: ["continue climbing", "revise the rubric as a new revision"],
             Phase.ACCEPTED: ["publish standing", "revise only as a new revision"],
         }[self.phase]
@@ -736,6 +782,7 @@ class Experiment:
             "evaluations": [self.store.read_json(ref) for ref in self.state["evaluations"]],
             "atlas_summary": self._atlas_summary(),
             "standing": self.state["standing"],
+            "measurement": self._measurement_status(),
             "next_actions": self.next_actions(),
         }
         if role == "blind_judge":
@@ -749,6 +796,33 @@ class Experiment:
         if role == "auditor":
             value.update({"state": self.state, "events": self.replay()})
         return scoped_view(value, role)
+
+    def _measurement_status(self) -> dict:
+        """Describe whether the current candidate has completed blind measurement."""
+        candidate = self.state["refs"].get("current_candidate")
+        evaluations = []
+        if candidate:
+            for ref in self.state["evaluations"]:
+                evaluation = self.store.read_json(ref)
+                if evaluation.get("candidate") == candidate:
+                    evaluations.append((ref, evaluation))
+        standing = self.state.get("standing")
+        if standing and standing.get("candidate") == candidate:
+            status = "accepted"
+        elif evaluations:
+            status = "not_accepted"
+        elif self.phase == Phase.AWAITING_BLIND_JUDGMENT:
+            status = "required"
+        elif candidate:
+            status = "development_only"
+        else:
+            status = "no_candidate"
+        return {
+            "status": status,
+            "blind_required": candidate is not None and status != "accepted",
+            "candidate": candidate,
+            "evaluation": evaluations[-1][0] if evaluations else None,
+        }
 
     def _atlas_summary(self) -> dict | None:
         if "atlas" not in self.state["refs"]:
@@ -978,6 +1052,9 @@ class Experiment:
         lines += ["## Conclusion", ""]
         if view["standing"]:
             lines.append("The candidate earned standing in the recorded blind evaluation.")
+        elif view["measurement"]["status"] == "required":
+            lines.append("The selected candidate is sealed, but its required blind panel "
+                         "is incomplete. It is not an accepted result.")
         else:
             lines.append("No accepted standing has been earned yet.")
         lines += ["", "Next: " + "; ".join(view["next_actions"]), "",

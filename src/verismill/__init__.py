@@ -17,4 +17,4 @@ __all__ = ["AgentBackend", "AgentRun", "AgentTask", "Experiment", "ModelConfig",
            "Phase", "class_catalog", "derive_local_standings", "experiments_root",
            "user_data_root"]
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

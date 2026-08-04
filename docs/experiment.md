@@ -63,9 +63,12 @@ Preparation rejects acceptance metrics the selected scorer cannot produce.
 
 Register a builder receipt, then either persist bytes directly with
 `record_candidate()` or render a mattermill class with `emit_candidate()`.
-Development rounds use `record_development_round()`. When a candidate is
-selected, call `submit_for_blind_judgment()`, register fresh `blind_judge`
-receipts, and record the evaluation.
+Development rounds use `record_development_round()`. A `select` decision
+automatically seals the candidate and transitions to
+`awaiting_blind_judgment`; register at least three fresh `blind_judge` receipts
+covering every lens and record the evaluation. `submit_for_blind_judgment()` is
+only the explicit boundary for imported candidates or evaluation-only flows
+that intentionally skip development selection.
 
 Quoted and image-region tells are recorded with `record_tell()`. It delegates
 to the existing evidence-of-k `Atlas`, then captures the resulting atlas as an
@@ -80,6 +83,10 @@ The lower-level pairwise and absolute scorers are exposed through
 `absolute_judge_tasks()` builds one isolated task per configured model using
 the existing glance/deep-read protocol and complementary judge lenses;
 `invoke_agent()` accepts any `AgentBackend` and persists the returned receipt.
+Provider-backed callers can use `run_absolute_blind_measurement()` to perform
+the required panel as one continuation: it creates the isolated tasks, invokes
+each model/backend arm, persists receipts, scores the complete lens set, and
+transitions to `accepted` or `judged`.
 
 ## State machine
 
@@ -165,10 +172,15 @@ verismill prepare "$EXP" \
   --requirements requirements.json
 verismill emit "$EXP" --class lease_nj --seed 221 \
   --builder-run sha256:... --explanation candidate-explanation.json
-verismill submit "$EXP" --candidate sha256:...
+verismill development "$EXP" --candidate sha256:... \
+  --judge-run sha256:<development-receipt> --findings findings.json \
+  --score development-score.json --decision select
 verismill agent-run "$EXP" --file blind-judge-1.json
+verismill agent-run "$EXP" --file blind-judge-2.json
+verismill agent-run "$EXP" --file blind-judge-3.json
 verismill judge "$EXP" --mode absolute \
-  --judge-run sha256:...
+  --judge-run sha256:<judge-1> --judge-run sha256:<judge-2> \
+  --judge-run sha256:<judge-3>
 verismill status "$EXP"
 verismill verify "$EXP"
 verismill report "$EXP"

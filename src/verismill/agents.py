@@ -64,7 +64,8 @@ ROLE_VISIBLE_FIELDS: dict[str, frozenset[str]] = {
     "auditor": frozenset({"*"}),
     "user": frozenset({"id", "revision", "request", "phase", "research_summary",
                        "rubric", "requirements", "current_candidate", "candidates", "development",
-                       "evaluations", "atlas_summary", "standing", "next_actions"}),
+                       "evaluations", "atlas_summary", "standing", "measurement",
+                       "next_actions"}),
 }
 
 

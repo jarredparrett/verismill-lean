@@ -146,7 +146,9 @@ def test_full_rejected_cycle_is_resumable_and_replayable(tmp_path):
         candidate=cand, judge_runs=[dev], decision="select", score={"layout": 72},
         findings=[{"observation": "footer weight is uniform",
                    "evidence": "page 1 footer region", "requirement": "form.layout"}])
-    exp.submit_for_blind_judgment()
+    assert exp.phase == Phase.AWAITING_BLIND_JUDGMENT
+    assert exp.view("user")["measurement"]["status"] == "required"
+    assert "required blind panel is incomplete" in exp.report()
     blind = [exp.record_agent_run(run("blind_judge", i)) for i in (1, 2, 3)]
     evaluation = exp.record_absolute_blind_evaluation(judge_runs=blind)
     assert exp.phase == Phase.JUDGED
@@ -208,8 +210,10 @@ def test_blindness_rejects_builder_or_development_context(tmp_path):
     contaminated = exp.record_agent_run(run("blind_judge", 3,
                                             agent="agent-builder-1",
                                             context="fresh-context"))
+    fresh = [exp.record_agent_run(run("blind_judge", i)) for i in (4, 5)]
     with pytest.raises(ValueError, match="not fresh"):
-        exp.record_absolute_blind_evaluation(judge_runs=[contaminated])
+        exp.record_absolute_blind_evaluation(
+            judge_runs=[contaminated, *fresh])
 
 
 def test_role_views_hide_provenance_and_development_history(tmp_path):
@@ -434,18 +438,21 @@ def test_pairwise_judge_harness_is_available_behind_facade(tmp_path):
     exp = prepared(tmp_path, pairwise_rubric)
     cand, _ = candidate(exp)
     exp.submit_for_blind_judgment(cand)
-    base = run("blind_judge", 1)
-    judge = AgentRun(run_id=base.run_id, agent_id=base.agent_id,
-                     context_id=base.context_id, role=base.role, model=base.model,
-                     prompt_hash=base.prompt_hash, input_hashes=base.input_hashes,
-                     raw_response='{"pick":"left"}',
-                     parsed_output={"pick": "left", "confidence": 0.8,
-                                    "tells": []})
-    judge_ref = exp.record_agent_run(judge)
+    judge_refs = []
+    keys = []
+    for i in (1, 2, 3):
+        base = run("blind_judge", i)
+        judge = AgentRun(run_id=base.run_id, agent_id=base.agent_id,
+                         context_id=base.context_id, role=base.role, model=base.model,
+                         prompt_hash=base.prompt_hash, input_hashes=base.input_hashes,
+                         raw_response='{"pick":"left"}',
+                         parsed_output={"pick": "left", "confidence": 0.8,
+                                        "tells": []})
+        judge_refs.append(exp.record_agent_run(judge))
+        keys.append({"trial_id": f"t{i}", "mode": "synth_vs_real",
+                     "synthetic_side": "left"})
     evaluation = exp.record_pairwise_blind_evaluation(
-        keys=[{"trial_id": "t1", "mode": "synth_vs_real",
-               "synthetic_side": "left"}],
-        judge_runs=[judge_ref])
+        keys=keys, judge_runs=judge_refs)
     assert exp.store.read_json(evaluation)["scores"]["synth_vs_real_accuracy"] == 1.0
 
 
@@ -466,6 +473,9 @@ def test_heterogeneous_blind_panel_tasks_use_only_sealed_artifact(tmp_path):
     cand, _ = candidate(exp)
     exp.submit_for_blind_judgment(cand)
     models = [ModelConfig(provider="provider", model=f"judge-{i}") for i in range(3)]
+    with pytest.raises(ValueError, match="at least 3"):
+        exp.absolute_judge_tasks(class_name="secret-internal-name",
+                                 persona="domain expert", models=models[:2])
     tasks = exp.absolute_judge_tasks(class_name="secret-internal-name",
                                      persona="domain expert", models=models)
     assert [task.model for task in tasks] == models
@@ -476,6 +486,69 @@ def test_heterogeneous_blind_panel_tasks_use_only_sealed_artifact(tmp_path):
     assert any("required disclosures" in task.instructions for task in tasks)
     assert any("signatures, initials, seals" in task.instructions for task in tasks)
     assert all("baseline omitted" not in task.instructions for task in tasks)
+
+
+def test_absolute_measurement_requires_three_judges_and_all_lenses(tmp_path):
+    """experiments.integrated-blind-measurement: a selected candidate cannot
+    complete measurement with a partial panel or partial lens assignment."""
+    exp = prepared(tmp_path)
+    cand, _ = candidate(exp)
+    dev = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[dev], decision="select", score={"layout": 80},
+        findings=[{"observation": "candidate is ready for blind measurement",
+                   "evidence": "rendered page inspection",
+                   "requirement": "form.layout"}])
+    blind = [exp.record_agent_run(run("blind_judge", i)) for i in (1, 2, 3)]
+    with pytest.raises(ValueError, match="at least 3"):
+        exp.record_absolute_blind_evaluation(judge_runs=blind[:2])
+    with pytest.raises(ValueError, match="every judge lens"):
+        exp.record_absolute_blind_evaluation(
+            judge_runs=blind,
+            assigned_lenses=["arithmetic_and_dates"] * 3)
+    exp.record_absolute_blind_evaluation(judge_runs=blind)
+    assert exp.phase == Phase.JUDGED
+
+
+def test_provider_backends_run_as_one_integrated_blind_measurement(tmp_path):
+    """experiments.integrated-panel-runner: provider adapters can execute,
+    persist, score, and transition the complete panel in one operation."""
+    exp = prepared(tmp_path)
+    cand, _ = candidate(exp)
+    dev = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[dev], decision="select", score={"layout": 90},
+        findings=[{"observation": "candidate is ready for blind measurement",
+                   "evidence": "rendered page inspection",
+                   "requirement": "form.layout"}])
+    models = [ModelConfig(provider="test", model=f"panel-{i}") for i in (1, 2, 3)]
+
+    class Backend:
+        def __init__(self, number):
+            self.number = number
+
+        def invoke(self, task):
+            parsed = absolute_output(91, "genuine")
+            return AgentRun(
+                run_id=f"integrated-panel-{self.number}",
+                agent_id=f"integrated-agent-{self.number}",
+                context_id=f"integrated-context-{self.number}",
+                role=task.role, model=task.model,
+                prompt_hash=task.prompt_hash(),
+                input_hashes=task.input_hashes(),
+                raw_response=json.dumps(parsed), parsed_output=parsed)
+
+    backends = [Backend(i) for i in (1, 2, 3)]
+    with pytest.raises(ValueError, match="one backend"):
+        exp.run_absolute_blind_measurement(
+            class_name="test_class", persona="domain expert",
+            models=models, backends=backends[:2])
+    evaluation = exp.run_absolute_blind_measurement(
+        class_name="test_class", persona="domain expert",
+        models=models, backends=backends)
+    assert exp.store.read_json(evaluation)["scores"]["k"] == 3
+    assert exp.phase == Phase.ACCEPTED
+    assert exp.view("user")["measurement"]["status"] == "accepted"
 
 
 def test_receipt_digests_are_not_mistaken_for_object_references(tmp_path):

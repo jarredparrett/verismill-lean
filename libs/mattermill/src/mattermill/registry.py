@@ -181,13 +181,14 @@ register(DocumentClass(
     name="estate_packet_ma",
     summary="A coordinated 2019 Massachusetts estate-planning and contested-"
             "probate packet: will, funded revocable trust, capacity and "
-            "execution evidence, inventory, petition, objection, and settlement.",
+            "execution evidence, inventory, tax/liquidity plan, formal filing "
+            "set, objection, and settlement.",
     module="mattermill.estate_ma",
     era="contemporary (2019)",
     substrate="searchable law-office production assembled from mixed originals",
     pins={"bates_prefix": "production prefix; defaults to ESTATE-"},
     sample=estate_ma.sample_estate, render=estate_ma.render_estate,
-    profiles=LAW_OFFICE, capture_window=(2019, 2019),
+    profiles=LAW_OFFICE, capture_window=(2020, 2020),
     takes_pins=True, takes_canon=True,
 ))
 

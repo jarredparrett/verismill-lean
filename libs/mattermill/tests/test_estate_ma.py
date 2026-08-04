@@ -15,7 +15,7 @@ from mattermill import registry
 META = {
     "producer": "Adobe Acrobat Pro DC 19.021",
     "creator": "Microsoft Word 2016",
-    "created": "2019-11-26 16:10:00",
+    "created": "2020-04-13 16:10:00",
     "modified": None,
 }
 
@@ -51,11 +51,11 @@ def pdf(model):
 
 
 def test_packet_completeness(model, pdf):
-    """estate.packet-completeness: one production contains all ten requested components."""
+    """estate.packet-completeness: the ten requested components and tax memo appear."""
     text = " ".join(_pages(pdf))
-    assert len(E.DOCUMENT_TITLES) == 10
+    assert len(E.DOCUMENT_TITLES) == 11
     assert all(title in text for title in E.DOCUMENT_TITLES)
-    assert all(str(number) in text for number in range(1, 11))
+    assert all(str(number) in text for number in range(1, 12))
 
 
 def test_canon_outcome(model):
@@ -79,6 +79,10 @@ def test_will_execution(model):
     assert text.count(model["witness_2"]) >= 2
     assert model["notary"] in text
     assert "presence and hearing" in text
+    seals = [line["notary_seal"] for line in E.compose_estate(model)
+             if "notary_seal" in line]
+    assert len(seals) == 3
+    assert all(name == model["notary"] for name, _ in seals)
 
 
 def test_pour_over(model):
@@ -107,6 +111,9 @@ def test_stock_and_copyright_funding(model):
     assert "ASSIGNMENT OF COPYRIGHTS" in text
     assert "17 U.S.C. section 204(a)" in text
     assert model["copyright_scope"] in text
+    assert "ISSUER STOCK-LEDGER EXTRACT" in text
+    assert "CANCELLED" in text and "OPEN" in text
+    assert all(work["title"] in text for work in model["copyright_catalog"])
 
 
 def test_inventory_titling(model):
@@ -156,7 +163,8 @@ def test_probate_petition(model):
     text = _composed_text(model)
     assert "Docket No. TO BE ASSIGNED BY COURT" in text
     assert f"{model['county']} Division" in text
-    assert "supervised administration requested" in text
+    for form in ("MPC 160", "MPC 162", "MPC 163", "MPC 280", "MPC 801"):
+        assert form in text
     assert all(person["name"] in text for person in model["family"]
                if person["heir_at_law"])
     assert "Sole beneficial recipient through pour-over trust" in text
@@ -198,6 +206,33 @@ def test_settlement_control(model):
     for token in (model["home_address"], model["company"],
                   "catalog copyrights", "governance and licensing control"):
         assert token in text
+    assert E._money(E.compute_tax_projection(model)["total_reserve"]) in text
+
+
+def test_tax_liquidity_control(model):
+    """estate.settlement-control: taxes, liquidity and a preservation plan share one asset model."""
+    assets = E.compute_assets(model)
+    projection = E.compute_tax_projection(model)
+    assert projection["taxable_estate"] == (
+        assets["gross_total"] - assets["administration_reserve"])
+    assert projection["total_reserve"] > projection["liquid_assets"]
+    assert projection["liquidity_shortfall"] == (
+        projection["total_reserve"] - projection["liquid_assets"])
+    assert projection["section_6166_candidate"]
+    text = _composed_text(model)
+    for token in ("Form 706", "Form M-706", "I.R.C. section 6166",
+                  "PROJECTED LIQUIDITY SHORTFALL", "not designated for sale"):
+        assert token in text
+
+
+def test_professional_role_separation(model):
+    """estate.independent-execution: drafting, fiduciary and advocacy roles stay separate."""
+    assert len({model["attorney"], model["independent_fiduciary"],
+                model["estate_counsel"], model["beneficiary_counsel"]}) == 4
+    text = _composed_text(model)
+    assert f"nominate {model['independent_fiduciary']}" in text
+    assert f"At the Settlor's death, {model['independent_fiduciary']}" in text
+    assert f"Responsible attorney: {model['attorney']}" in text
 
 
 def test_cross_document_coherence():
@@ -206,11 +241,15 @@ def test_cross_document_coherence():
                  decedent="Lucian Cross",
                  beneficiary="Rosa Bell",
                  attorney="Amos Finch",
+                 independent_fiduciary="Marian Holt",
+                 estate_counsel="Eleanor Pike",
+                 beneficiary_counsel="Thomas Carver",
                  company="Cross Quill Publishing, Inc.",
                  company_short="Cross Quill",
                  home_address="91 Alder Lane",
                  trust_name="The Lucian Cross Revocable Trust",
-                 copyright_scope="all Lucian Cross literary copyrights")
+                 copyright_scope="all Lucian Cross literary copyrights",
+                 copyright_catalog=[{"title": "The Cross File", "year": 2007}])
     model = E.sample_estate(random.Random(4), canon=canon)
     text = _composed_text(model)
     for value in (canon["decedent"], canon["beneficiary"], canon["attorney"],
@@ -223,12 +262,12 @@ def test_cross_document_coherence():
 
 
 def test_identifier_honesty(model):
-    """estate.identifier-honesty: synthetic official and professional identifiers remain explicit blanks."""
+    """estate.identifier-honesty: unverified identifiers are omitted without synthetic leakage."""
     text = _composed_text(model)
     assert "TO BE ASSIGNED" in text
     assert "no court-issued citation or docket number existed" in text
-    assert "No professional registration or license number is represented" in text
-    assert "Copyright registration numbers are not represented" in text
+    assert "unverified Copyright Office registration number" in text
+    assert "synthetic" not in text.lower()
 
 
 def test_seeded_everywhere():
@@ -252,7 +291,7 @@ def test_forensic_packet(model, pdf):
                for number, page in enumerate(pages, 1))
     assert all(f"Page {number}" in page for number, page in enumerate(pages, 1))
     metadata = pdfium.PdfDocument(io.BytesIO(pdf)).get_metadata_dict()
-    assert "2019" in metadata["CreationDate"]
+    assert "2020" in metadata["CreationDate"]
     assert metadata["CreationDate"] == metadata["ModDate"]
     assert any(type(obj).__name__ == "PdfImage"
                for page in pdfium.PdfDocument(io.BytesIO(pdf))

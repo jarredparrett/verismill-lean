@@ -32,6 +32,10 @@ DEFAULT_CANON = {
     "beneficiary": "Maya Serrano",
     "attorney": "Peter Halden",
     "attorney_assistant": "Ellen Shaw",
+    "independent_fiduciary": "Marian Holt",
+    "estate_counsel": "Eleanor Pike",
+    "beneficiary_counsel": "Thomas Carver",
+    "company_secretary": "Dana Mercer",
     "company": "Vale House Press, Inc.",
     "company_short": "Vale House Press",
     "home_address": "17 Orchard Rise",
@@ -43,8 +47,8 @@ DEFAULT_CANON = {
     "trust_original_date": "2012-06-14",
     "execution_date": "2019-11-01",
     "death_date": "2019-11-08",
-    "petition_date": "2019-11-18",
-    "settlement_date": "2019-11-25",
+    "petition_date": "2019-12-16",
+    "settlement_date": "2020-04-10",
     "age": 85,
     "marital_status": "widower",
     "liquid_assets": 60000000,
@@ -55,6 +59,14 @@ DEFAULT_CANON = {
         "interests owned by Edward Vale in every published and unpublished "
         "literary work in the Vale House Press catalog"
     ),
+    "copyright_catalog": [
+        {"title": "The Last Cipher", "year": 1984},
+        {"title": "The Ivory Knife", "year": 1989},
+        {"title": "Midnight at Blackwood", "year": 1994},
+        {"title": "A Killing in the Orchard", "year": 2001},
+        {"title": "The Glass Stair", "year": 2008},
+        {"title": "The Hollow Key", "year": 2016},
+    ],
     "family": [
         {"name": "Clara Vale North", "relationship": "daughter",
          "heir_at_law": True},
@@ -94,6 +106,15 @@ def _date(value: str) -> _dt.date:
 def _fmt(value: str | _dt.date) -> str:
     d = _date(value) if isinstance(value, str) else value
     return f"{d.strftime('%B')} {d.day}, {d.year}"
+
+
+def _add_months(value: _dt.date, months: int) -> _dt.date:
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, (_dt.date(year + (month == 12), month % 12 + 1, 1)
+                          - _dt.timedelta(days=1)).day)
+    return _dt.date(year, month, day)
 
 
 def _money(value: int | float) -> str:
@@ -187,6 +208,35 @@ def compute_assets(model: dict) -> dict:
         "gross_total": gross,
         "settlement_offer": settlement_offer,
         "administration_reserve": reserve,
+    }
+
+
+def compute_tax_projection(model: dict) -> dict:
+    """Derive a conservative planning reserve from the one asset model.
+
+    This is a liquidity memorandum, not a filed return. The federal estimate
+    uses the 2019 $11.4 million exclusion and 40 percent top-rate equivalent;
+    the Massachusetts amount is a deliberately conservative 16 percent
+    planning reserve pending preparation of Form M-706.
+    """
+    assets = compute_assets(model)
+    taxable = max(0, assets["gross_total"] - assets["administration_reserve"])
+    federal = int(round(max(0, taxable - 11_400_000) * .40, -3))
+    massachusetts = int(round(max(0, taxable - 1_000_000) * .16, -3))
+    income_tax = int(round(assets["gross_total"] * .01, -3))
+    total = federal + massachusetts + assets["administration_reserve"] + income_tax
+    shortfall = max(0, total - model["liquid_assets"])
+    closely_held_ratio = model["company_value"] / assets["gross_total"]
+    return {
+        "taxable_estate": taxable,
+        "federal_estate_tax": federal,
+        "massachusetts_estate_tax_reserve": massachusetts,
+        "income_tax_reserve": income_tax,
+        "total_reserve": total,
+        "liquid_assets": model["liquid_assets"],
+        "liquidity_shortfall": shortfall,
+        "closely_held_ratio": closely_held_ratio,
+        "section_6166_candidate": closely_held_ratio > .35,
     }
 
 
@@ -299,6 +349,9 @@ class _Composer:
     def signature(self, name: str, role: str, key: str):
         self.lines.append({"signature": (name, role, key), "lead": 66})
 
+    def notary_seal(self, name: str, expiry: _dt.date):
+        self.lines.append({"notary_seal": (name, _fmt(expiry)), "lead": 82})
+
 
 def _named_family(model: dict, *, include_predeceased: bool = False) -> list[dict]:
     return [p for p in model["family"]
@@ -351,7 +404,7 @@ def _will(c: _Composer, m: dict, defect: dict) -> None:
            "including descendants and their spouses. This omission is "
            "intentional and is not the result of mistake or lack of knowledge.")
     c.heading("ARTICLE II - PERSONAL REPRESENTATIVE")
-    c.para(f"I nominate {m['attorney']} as Personal Representative, to serve "
+    c.para(f"I nominate {m['independent_fiduciary']} as Personal Representative, to serve "
            "without sureties to the fullest extent permitted by law. If that "
            "nominee cannot serve, the court may appoint a disinterested "
            "professional fiduciary. My Personal Representative may retain "
@@ -404,6 +457,7 @@ def _will(c: _Composer, m: dict, defect: dict) -> None:
     c.signature(m["notary"],
                 f"Notary Public; commission expires {_fmt(m['notary_expiry'])}",
                 "notary-will")
+    c.notary_seal(m["notary"], m["notary_expiry"])
 
 
 def _trust(c: _Composer, m: dict, defect: dict) -> None:
@@ -426,7 +480,7 @@ def _trust(c: _Composer, m: dict, defect: dict) -> None:
            "has a present right to control administration while the trust is "
            "revocable.")
     c.heading("ARTICLE 3 - SUCCESSOR TRUSTEE")
-    c.para(f"At the Settlor's death, {m['attorney']} shall serve as successor "
+    c.para(f"At the Settlor's death, {m['independent_fiduciary']} shall serve as successor "
            "Trustee. The successor shall act independently of every "
            "beneficiary, may retain the publishing business, and shall keep "
            "separate records for probate, trust, and company property.")
@@ -461,6 +515,7 @@ def _trust(c: _Composer, m: dict, defect: dict) -> None:
     c.signature(m["notary"],
                 f"Notary Public; commission expires {_fmt(m['notary_expiry'])}",
                 "notary-trust")
+    c.notary_seal(m["notary"], m["notary_expiry"])
 
 
 def _funding(c: _Composer, m: dict, defect: dict) -> None:
@@ -474,6 +529,8 @@ def _funding(c: _Composer, m: dict, defect: dict) -> None:
     c.row(["Shares issued", f"{m['company_shares']:,}"], [120, USABLE - 120])
     c.row(["Shares owned", f"{m['company_shares']:,}"], [120, USABLE - 120])
     c.row(["Ownership", "100 percent"], [120, USABLE - 120])
+    c.row(["Ledger account", "BLW-TRUST-001 (internal issuer record)"],
+          [120, USABLE - 120])
     c.row(["Evidence", "Uncertificated position on issuer stock ledger"],
           [120, USABLE - 120])
     c.heading("ASSIGNMENT OF STOCK")
@@ -481,16 +538,38 @@ def _funding(c: _Composer, m: dict, defect: dict) -> None:
            f"to himself as Trustee of {m['trust_name']} all right, title, and "
            f"interest in {shares:,} shares of {m['company_share_class']} of "
            f"{m['company']}, constituting the entire issued and outstanding "
-           "equity position. The corporate stock ledger shall show the Trustee "
-           "as registered owner as of the execution date.")
+           "equity position. The transfer is effective on delivery of this signed "
+           "instrument and the issuer's acceptance below.")
+    c.heading("ISSUER STOCK-LEDGER EXTRACT")
+    widths = [112, 116, 82, 76, 90]
+    c.row(["Effective date", "Registered owner", "Class", "Shares", "Status"],
+          widths, bold=True)
+    c.row([_fmt(m["execution_date"]), m["decedent"],
+           m["company_share_class"], f"({shares:,})", "CANCELLED"], widths)
+    c.row([_fmt(m["execution_date"]), m["trust_name"],
+           m["company_share_class"], f"{shares:,}", "OPEN"], widths)
+    c.para(f"I certify that the issuer's uncertificated stock ledger was updated "
+           f"on {_fmt(m['execution_date'])}, that the former individual position "
+           "was cancelled, and that the trust is the registered holder of the "
+           "entire issued position.")
+    c.signature(m["company_secretary"], f"Secretary, {m['company']}",
+                "company-secretary")
     c.heading("SCHEDULE B - AUTHOR-OWNED COPYRIGHTS")
     c.para(m["copyright_scope"] + ". This category includes registered and "
            "unregistered works, manuscripts, reserved rights, accrued and "
            "future royalties, claims and causes of action, and proceeds. It "
            "does not include copyrights already owned by the corporation; "
            "those remain company assets reflected only in the stock value.")
-    c.para("Copyright registration numbers are not represented in this synthetic "
-           "schedule; chain-of-title diligence must obtain them from source records.")
+    c.row(["Work", "Pub.", "Record status", "Transferred interest"],
+          [180, 48, 105, 143], bold=True)
+    for work in m["copyright_catalog"]:
+        c.row([work["title"], str(work["year"]), "Audit pending",
+               "Author-owned copyright"], [180, 48, 105, 143])
+    c.para("Registration and chain-of-title identifiers remain subject to the "
+           "catalog audit. This schedule identifies each transferred work without "
+           "asserting an unverified Copyright Office registration number. Publishing "
+           "agreements remain company assets; the author's underlying copyrights, "
+           "reserved rights, and net royalty interests are transferred here.")
     c.heading("ASSIGNMENT OF COPYRIGHTS")
     c.para(f"{m['decedent']} hereby assigns to himself as Trustee all right, "
            "title, and interest described in Schedule B. This signed writing "
@@ -503,6 +582,7 @@ def _funding(c: _Composer, m: dict, defect: dict) -> None:
     c.signature(m["notary"],
                 f"Notary Public; commission expires {_fmt(m['notary_expiry'])}",
                 "notary-assignment")
+    c.notary_seal(m["notary"], m["notary_expiry"])
 
 
 def _memorandum(c: _Composer, m: dict) -> None:
@@ -536,7 +616,7 @@ def _capacity(c: _Composer, m: dict) -> None:
     c.new_document(5, DOCUMENT_TITLES[4], "medical")
     c.text("HARBOR INTERNAL MEDICINE", bold=True, align="c",
            font=("Helvetica-Bold", 13))
-    c.text("Clinical correspondence - no license or patient account number shown",
+    c.text("CONFIDENTIAL CLINICAL CORRESPONDENCE",
            align="c", font=("Helvetica", 8.5))
     c.rule()
     c.text(_fmt(m["execution_date"]))
@@ -603,7 +683,10 @@ def _execution_notes(c: _Composer, m: dict) -> None:
            "that the client for this planning engagement is the decedent alone; no "
            "family member or beneficiary is a client on the disposition. Advised that "
            "the file may become evidence after death and that fiduciary appointments "
-           "may require separate litigation counsel.")
+           "may require separate litigation counsel. Client was advised that the "
+           "drafting lawyer could become a fact witness and that appointment of "
+           "independent fiduciary and separate post-death counsel would reduce role "
+           "conflicts. Client selected that structure.")
     c.heading("CAPACITY AND INFLUENCE ASSESSMENT")
     c.para("Attorney's independent assessment: client understood the act, approximate "
            "property, natural objects of bounty, and chosen plan; maintained the same "
@@ -645,21 +728,92 @@ def _inventory(c: _Composer, m: dict, defect: dict) -> None:
                f"{m['state']} {m['postal_code']}; trust-titled before death.")
     c.numbered("2.", f"{m['company_shares']:,} shares of {m['company_share_class']} "
                f"of {m['company']} equal 100 percent of the issued equity. Company "
-               "assets and liabilities are subsumed in the stock appraisal.")
+               "assets and liabilities are subsumed in the stock appraisal. The "
+               "company valuation excludes author-owned copyrights and values only "
+               "the publisher's contractual margin and operating enterprise.")
     c.numbered("3.", "Author copyrights were assigned separately and are not assumed "
-               "to pass merely with the publishing-company stock.")
+               "to pass merely with the publishing-company stock. Their valuation "
+               "uses author net-royalty cash flows after the publisher's share, so "
+               "the same royalty stream is not counted in both appraisals.")
     c.numbered("4.", f"Preliminary administration reserve: "
                f"{_money(assets['administration_reserve'])}; reserve is a holdback, "
                "not an additional liability or asset.")
     c.ensure(90)
     c.para("I certify under the penalties of perjury that this preliminary inventory "
            "is complete and accurate to the best of my knowledge and belief.")
-    c.signature(m["attorney"], "Nominated Personal Representative", "fiduciary-inventory")
+    c.signature(m["independent_fiduciary"], "Nominated Personal Representative",
+                "fiduciary-inventory")
+
+
+def _tax_liquidity(c: _Composer, m: dict) -> None:
+    assets = compute_assets(m)
+    tax = compute_tax_projection(m)
+    c.new_document(8, DOCUMENT_TITLES[7], "medical")
+    c.text("FIDUCIARY TAX GROUP", bold=True, align="c",
+           font=("Helvetica-Bold", 14))
+    c.text("PRELIMINARY ESTATE-TAX AND LIQUIDITY MEMORANDUM", bold=True,
+           align="c")
+    c.rule()
+    c.text(f"Estate of {m['decedent']}")
+    c.text(f"Prepared for {m['independent_fiduciary']}, nominated fiduciary")
+    c.text(f"Planning date: {_fmt(m['settlement_date'])}")
+    c.heading("PURPOSE AND LIMITATIONS")
+    c.para("This memorandum is a conservative administration projection, not a "
+           "filed Form 706 or Massachusetts Form M-706. Values, deductions, prior "
+           "taxable gifts, portability, credits, and elections remain subject to "
+           "appraisal, records, and return preparation. No distribution may rely on "
+           "this estimate without the fiduciary's updated tax advice.")
+    c.heading("PRELIMINARY RESERVE")
+    widths = [315, 151]
+    rows = [
+        ("Consolidated gross estate", assets["gross_total"]),
+        ("Less preliminary administration reserve",
+         assets["administration_reserve"]),
+        ("Planning taxable estate", tax["taxable_estate"]),
+        ("Federal estate-tax estimate; 2019 $11.4m exclusion",
+         tax["federal_estate_tax"]),
+        ("Massachusetts estate-tax reserve; M-706 pending",
+         tax["massachusetts_estate_tax_reserve"]),
+        ("Estate/trust income-tax reserve", tax["income_tax_reserve"]),
+        ("Administration expense reserve", assets["administration_reserve"]),
+        ("TOTAL TAX AND ADMINISTRATION RESERVE", tax["total_reserve"]),
+        ("Liquid cash and marketable investments", tax["liquid_assets"]),
+        ("PROJECTED LIQUIDITY SHORTFALL", tax["liquidity_shortfall"]),
+    ]
+    for label, value in rows:
+        c.row([label, _money(value)], widths,
+              bold=label.startswith(("TOTAL", "PROJECTED")), aligns=["l", "r"])
+    c.heading("FILING AND PAYMENT CALENDAR")
+    due = _add_months(_date(m["death_date"]), 9)
+    c.numbered("1.", f"Federal Form 706 return and estate-tax payment are due "
+               f"{_fmt(due)}, nine months after death, subject to a timely extension "
+               "of the return and separate payment-relief rules.")
+    c.numbered("2.", "Massachusetts Form M-706 is required because the 2019 gross "
+               "estate exceeds the $1,000,000 filing threshold. Obtain the estate-tax "
+               "release before recording or distributing Massachusetts real estate.")
+    c.numbered("3.", "Prepare fiduciary income-tax returns and reserve for post-death "
+               "royalties, interest, gains, and income in respect of a decedent.")
+    c.heading("LIQUIDITY PLAN")
+    ratio = tax["closely_held_ratio"]
+    c.para(f"The publishing-company interest is {ratio:.1%} of the preliminary gross "
+           "estate. Counsel and the return preparer should test eligibility for the "
+           "closely held business installment election under I.R.C. section 6166; "
+           "this memorandum does not assume the election will be allowed.")
+    c.para("Until eligibility is confirmed, the fiduciary shall preserve liquid "
+           "assets, obtain a secured credit facility against marketable assets, "
+           "request a lawful company dividend or redemption only after solvency and "
+           "fiduciary review, and defer the family settlement payment. The residence, "
+           "company voting control, and catalog copyrights are not designated for "
+           "sale. Any borrowing or business distribution must be documented as an "
+           "administration transaction, not a beneficiary preference.")
+    c.ensure(90)
+    c.signature(m["estate_counsel"], "Estate counsel; preliminary planning review",
+                "tax-counsel")
 
 
 def _petition(c: _Composer, m: dict) -> None:
     assets = compute_assets(m)
-    c.new_document(8, DOCUMENT_TITLES[7], "court")
+    c.new_document(9, DOCUMENT_TITLES[8], "court")
     c.text("COMMONWEALTH OF MASSACHUSETTS", bold=True, align="c")
     c.text("THE TRIAL COURT", bold=True, align="c")
     c.text("PROBATE AND FAMILY COURT", bold=True, align="c")
@@ -667,8 +821,8 @@ def _petition(c: _Composer, m: dict) -> None:
     c.row([f"{m['county']} Division", "Docket No. TO BE ASSIGNED BY COURT"],
           [230, 246], bold=True)
     c.rule()
-    c.title("PETITION FOR FORMAL PROBATE OF WILL AND APPOINTMENT",
-            "Original form - supervised administration requested")
+    c.title("MPC 160 - PETITION FOR FORMAL PROBATE OF A WILL",
+            "and formal appointment of a Personal Representative")
     c.para("Pursuant to G. L. c. 190B, section 3-402, the Petitioner requests "
            "formal probate of the original Will, determination of heirs, formal "
            "appointment of the nominated Personal Representative, and supervised "
@@ -681,16 +835,16 @@ def _petition(c: _Composer, m: dict) -> None:
            f"{m['state']} {m['postal_code']}"], [120, 356])
     c.row(["Marital status", m["marital_status"].title()], [120, 356])
     c.heading("2. PETITIONER AND PRIORITY")
-    c.para(f"Petitioner {m['attorney']} is the Personal Representative nominated "
-           "in the offered Will. Address for service: care of the filing law firm, "
-           f"{m['county']} County, {m['state']}. No professional registration or "
-           "license number is represented in this synthetic filing copy.")
+    c.para(f"Petitioner {m['independent_fiduciary']} is the Personal Representative "
+           "nominated in the offered Will. Service shall be made through estate "
+           f"counsel {m['estate_counsel']} at the address endorsed on the signed "
+           "court-filed original.")
     c.heading("3. WILL AND VENUE")
     c.para(f"The original Will dated {_fmt(m['execution_date'])} accompanies the "
            "petition and has not been informally probated. Venue lies in this "
            "Division because the decedent was domiciled in the county at death. "
-           "A certified death certificate and required related forms are to be "
-           "filed with the court; no court-issued citation or docket number existed "
+           "A certified death certificate and the companion forms listed below "
+           "accompany the filing; no court-issued citation or docket number existed "
            "when this production copy was assembled.")
     c.heading("4. HEIRS AT LAW")
     for person in _heirs(m):
@@ -705,20 +859,60 @@ def _petition(c: _Composer, m: dict) -> None:
            _money(assets["trust_total"])], [300, 176], aligns=["l", "r"])
     c.heading("7. REQUESTED ORDERS")
     c.numbered("a.", "Admit the original Will to formal probate and determine heirs.")
-    c.numbered("b.", f"Appoint {m['attorney']} as Personal Representative under "
+    c.numbered("b.", f"Appoint {m['independent_fiduciary']} as Personal Representative under "
                "supervised administration, with bond without sureties if allowed.")
     c.numbered("c.", "Issue citation and schedule a case-management conference if "
                "an appearance or objection is filed.")
     c.ensure(150)
     c.para("Signed under the penalties of perjury. I certify that the statements "
            "made are true and complete to the best of my knowledge and belief.")
-    c.signature(m["attorney"], "Petitioner and nominated Personal Representative",
+    c.signature(m["independent_fiduciary"],
+                "Petitioner and nominated Personal Representative",
                 "petitioner")
-    c.signature(m["attorney"], "Counsel for Petitioner", "petition-counsel")
+    c.signature(m["estate_counsel"], "Counsel for Petitioner", "petition-counsel")
+    c.ensure(590)
+    c.title("FORMAL-PROBATE COMPANION FILING SET",
+            "Massachusetts Probate and Family Court")
+    c.para("The following state-form components accompany or follow the MPC 160. "
+           "Court-issued citation and decree are listed but are not created or "
+           "pre-signed by the petitioner.")
+    c.row(["Form", "Purpose", "File status"], [76, 260, 130], bold=True)
+    filing_rows = [
+        ("MPC 162", "Surviving Spouse, Children, Heirs at Law", "Completed schedule"),
+        ("MPC 163", "Devisees", "Completed schedule"),
+        ("MPC 280", "Petition for Supervised Administration", "Signed for filing"),
+        ("MPC 801", "Bond", "Signed; amount for court"),
+        ("MPC 470", "Military Affidavit", "Due before decree"),
+        ("MPC 560", "Citation", "Court to issue"),
+        ("MPC 755", "Decree and Order", "Court to issue"),
+    ]
+    for form, purpose, status in filing_rows:
+        c.row([form, purpose, status], [76, 260, 130])
+    c.heading("MPC 162 - HEIRS AT LAW")
+    for person in _heirs(m):
+        c.row([person["name"], person["relationship"]], [190, 276])
+    c.heading("MPC 163 - DEVISEE")
+    c.row([m["beneficiary"], "Beneficiary through the pour-over trust"], [190, 276])
+    c.heading("MPC 280 - SUPERVISED ADMINISTRATION")
+    c.para("Supervision is requested because objections place testamentary capacity, "
+           "undue influence, execution, trust amendment, and title in dispute. No "
+           "distribution, compromise, sale of the residence, or transfer of company "
+           "control should occur without the orders required by supervised administration.")
+    c.signature(m["independent_fiduciary"], "Petitioner - MPC 280", "mpc-280")
+    c.heading("MPC 801 - BOND")
+    c.para(f"Principal: {m['independent_fiduciary']}. Penal sum and surety status are "
+           "left for the court's order. The principal undertakes faithful performance "
+           "and accounting according to law.")
+    c.signature(m["independent_fiduciary"], "Principal - MPC 801", "mpc-801")
+    c.heading("ATTACHMENT CONTROL")
+    c.para("Original Will: lodged with petition. Certified death certificate: attached. "
+           "MPC 162, MPC 163, MPC 280, MPC 801: attached. MPC 470: required before "
+           "decree. MPC 560 citation and MPC 755 decree: court-issued only. Docket "
+           "number remains TO BE ASSIGNED BY COURT.")
 
 
 def _objection(c: _Composer, m: dict) -> None:
-    c.new_document(9, DOCUMENT_TITLES[8], "court")
+    c.new_document(10, DOCUMENT_TITLES[9], "court")
     c.text("COMMONWEALTH OF MASSACHUSETTS", bold=True, align="c")
     c.text("PROBATE AND FAMILY COURT", bold=True, align="c")
     c.row([f"{m['county']} Division", "Related docket: TO BE ASSIGNED"],
@@ -775,7 +969,10 @@ def _objection(c: _Composer, m: dict) -> None:
 
 def _settlement(c: _Composer, m: dict) -> None:
     assets = compute_assets(m)
-    c.new_document(10, DOCUMENT_TITLES[9], "letter")
+    tax = compute_tax_projection(m)
+    c.new_document(11, DOCUMENT_TITLES[10], "letter")
+    c.text(f"{m['beneficiary_counsel'].upper()} | PRIVATE CLIENT GROUP",
+           bold=True, align="c", font=("Helvetica-Bold", 12))
     c.text("WITHOUT PREJUDICE - FOR SETTLEMENT PURPOSES ONLY", bold=True,
            align="c")
     c.text("ATTORNEY WORK PRODUCT", align="c")
@@ -786,7 +983,9 @@ def _settlement(c: _Composer, m: dict) -> None:
     c.heading("PROPOSAL")
     c.para(f"Without admitting liability or invalidity, {m['beneficiary']} offers "
            f"an aggregate {_money(assets['settlement_offer'])} from liquid property "
-           "in exchange for a single coordinated resolution. The offer expires "
+           "in exchange for a single coordinated resolution. Payment is subordinate "
+           f"to the {_money(tax['total_reserve'])} preliminary tax and administration "
+           "reserve and requires written fiduciary approval. The offer expires "
            "fourteen days after delivery unless extended in a signed writing.")
     allocations = [("Living children", .50), ("Issue of predeceased child", .20),
                    ("Other participating family objectors", .30)]
@@ -840,7 +1039,7 @@ def _settlement(c: _Composer, m: dict) -> None:
            "notice and careful holdback. Settlement is offered to cap cost and delay, "
            "not because the no-contest clause guarantees dismissal.")
     c.ensure(95)
-    c.signature(m["attorney"], f"Counsel for {m['beneficiary']}",
+    c.signature(m["beneficiary_counsel"], f"Counsel for {m['beneficiary']}",
                 "settlement-counsel")
 
 
@@ -852,6 +1051,7 @@ DOCUMENT_TITLES = [
     "Physician Capacity Letter",
     "Attorney Execution Notes",
     "Consolidated Estate and Trust Inventory",
+    "Preliminary Estate-Tax and Liquidity Memorandum",
     "Petition for Formal Probate and Appointment",
     "Family Objection to Beneficiary's Inheritance",
     "Settlement Proposal and No-Contest-Clause Analysis",
@@ -859,7 +1059,7 @@ DOCUMENT_TITLES = [
 
 
 def compose_estate(model: dict, defect: dict | None = None) -> list[dict]:
-    """Compose all ten requested components as a flat, inspectable line list."""
+    """Compose the ten requested components plus a tax/liquidity memorandum."""
     defect = dict(defect or {})
     c = _Composer()
     _cover(c, model)
@@ -870,6 +1070,7 @@ def compose_estate(model: dict, defect: dict | None = None) -> list[dict]:
     _capacity(c, model)
     _execution_notes(c, model)
     _inventory(c, model, defect)
+    _tax_liquidity(c, model)
     _petition(c, model)
     _objection(c, model)
     _settlement(c, model)
@@ -945,6 +1146,26 @@ def _render_vector(lines: list[dict], model: dict, metadata: dict) -> bytes:
             canvas.line(LEFT, y + 4, RIGHT, y + 4)
             y -= lead
             continue
+        if "notary_seal" in line:
+            name, expiry = line["notary_seal"]
+            cx, cy = RIGHT - 68, y - 28
+            canvas.saveState()
+            canvas.setStrokeColorRGB(.24, .31, .45)
+            canvas.setFillColorRGB(.24, .31, .45)
+            canvas.setLineWidth(1.2)
+            canvas.circle(cx, cy, 44, stroke=1, fill=0)
+            canvas.circle(cx, cy, 38, stroke=1, fill=0)
+            canvas.setFont("Helvetica-Bold", 6.5)
+            canvas.drawCentredString(cx, cy + 20,
+                                     "COMMONWEALTH OF MASSACHUSETTS")
+            canvas.setFont("Helvetica-Bold", 8)
+            canvas.drawCentredString(cx, cy + 3, "NOTARY PUBLIC")
+            canvas.setFont("Helvetica", 6.5)
+            canvas.drawCentredString(cx, cy - 10, name.upper())
+            canvas.drawCentredString(cx, cy - 21, f"COMMISSION EXPIRES {expiry}")
+            canvas.restoreState()
+            y -= lead
+            continue
         if "signature" in line:
             name, role, key = line["signature"]
             seed = (_stable_hash(name + key) + model["signature_salt"]) % 1000003
@@ -965,19 +1186,27 @@ def _render_vector(lines: list[dict], model: dict, metadata: dict) -> bytes:
             continue
         if "row" in line:
             x = LEFT
-            for cell, width, align in zip(line["row"], line["widths"],
-                                          line["aligns"]):
-                if cell:
-                    name, size = line["font"]
+            name, size = line["font"]
+            wrapped = [_wrap(str(cell), line["font"], width - 8)
+                       if cell else [""]
+                       for cell, width in zip(line["row"], line["widths"])]
+            row_lead = size + 2.2
+            row_height = max(len(parts) for parts in wrapped) * row_lead
+            if y - row_height < BOTTOM:
+                new_page()
+            for parts, width, align in zip(wrapped, line["widths"],
+                                           line["aligns"]):
+                for index, cell in enumerate(parts):
                     canvas.setFont(name, size)
+                    line_y = y - index * row_lead
                     if align == "r":
-                        canvas.drawRightString(x + width - 4, y, str(cell))
+                        canvas.drawRightString(x + width - 4, line_y, cell)
                     elif align == "c":
-                        canvas.drawCentredString(x + width / 2, y, str(cell))
+                        canvas.drawCentredString(x + width / 2, line_y, cell)
                     else:
-                        canvas.drawString(x, y, str(cell))
+                        canvas.drawString(x + 2, line_y, cell)
                 x += width
-            y -= lead
+            y -= max(lead, row_height)
             continue
         if "hang" in line:
             label, body = line["hang"]

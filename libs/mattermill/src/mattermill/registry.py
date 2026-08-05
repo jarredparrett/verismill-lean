@@ -258,11 +258,12 @@ register(DocumentClass(
     pins={"execution_date": "ISO date in 1997",
           "consideration": "whole-dollar transfer consideration",
           "grantor_married": "bool — grantor capacity",
+          "notary_name": "str — displayed notary identity",
           "new_construction": "bool — period RTF exemption",
           "partial_exemption": "none | senior | blind | disabled"},
     sample=deed_nj.sample_deed, render=deed_nj.render_deed,
     profiles=SHEETFED, capture_window=(2010, 2016),
-    takes_pins=True, takes_canon=True,
+    takes_pins=True, takes_canon=True, public_facts=deed_nj.public_display_facts,
 ))
 
 register(DocumentClass(

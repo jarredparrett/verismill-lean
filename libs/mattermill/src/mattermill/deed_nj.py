@@ -98,6 +98,11 @@ def _name(rng: random.Random, *, sex: str | None = None) -> str:
     return f"{rng.choice(first)} {rng.choice(LAST)}"
 
 
+def _first_name(rng: random.Random, *, sex: str | None = None) -> str:
+    first = MALE_FIRST if sex == "male" else FEMALE_FIRST if sex == "female" else FIRST
+    return rng.choice(first)
+
+
 def sample_deed(rng: random.Random, *, pins: dict | None = None,
                 canon: dict | None = None) -> dict:
     pins = dict(pins or {})
@@ -120,7 +125,10 @@ def sample_deed(rng: random.Random, *, pins: dict | None = None,
     grantor_sex = rng.choice(["female", "male"])
     grantor = _name(rng, sex=grantor_sex)
     grantee = _name(rng)
-    while grantee == grantor:
+    # The grantee represents a different household.  A shared surname made a
+    # later spouse signature look like a party mismatch even though each field
+    # was locally populated correctly.
+    while grantee.split()[-1] == grantor.split()[-1]:
         grantee = _name(rng)
     consideration = int(pins.get("consideration", rng.randrange(175_000, 451_000, 500)))
     recorded = _next_clerk_day(execution + dt.timedelta(days=rng.randint(3, 14)))
@@ -134,9 +142,12 @@ def sample_deed(rng: random.Random, *, pins: dict | None = None,
     new_construction = bool(pins.get("new_construction", False))
     married = bool(pins.get("grantor_married", rng.choice([True, False])))
     spouse_sex = "female" if grantor_sex == "male" else "male"
-    spouse = _name(rng, sex=spouse_sex) if married else None
-    while spouse in {grantor, grantee}:
-        spouse = _name(rng)
+    spouse = (
+        f"{_first_name(rng, sex=spouse_sex)} {grantor.split()[-1]}"
+        if married else None
+    )
+    while spouse == grantor:
+        spouse = f"{_first_name(rng, sex=spouse_sex)} {grantor.split()[-1]}"
     notary = str(pins.get("notary_name", "Avery North")).strip()
     if not notary:
         raise ValueError("notary_name must be non-empty")
@@ -500,6 +511,17 @@ def public_display_facts(m: dict, *, defect: dict | None = None) -> dict:
         "lot": m["lot"],
         "execution_date": m["execution_date"].isoformat(),
         "consideration": m["consideration"],
+        "grantor_name": m["grantor"],
+        "grantor_address": m["grantor_address"],
+        "grantee_name": m["grantee"],
+        "grantee_address": m["grantee_address"],
+        "grantor_spouse_name": m["grantor_spouse"],
+        "signatory_names": [
+            name for name in (m["grantor"], m["grantor_spouse"]) if name
+        ],
+        "acknowledgment_names": [
+            name for name in (m["grantor"], m["grantor_spouse"]) if name
+        ],
         "grantor_married": m["grantor_married"],
         "new_construction": m["new_construction"],
         "partial_exemption": m["partial_exemption"],

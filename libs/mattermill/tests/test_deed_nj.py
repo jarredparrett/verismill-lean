@@ -81,6 +81,17 @@ def test_party_canon(model, pdf):
     assert "release matrimonial rights" in text
 
 
+def test_party_role_coherence():
+    """deed.party-role-coherence: one household cannot resemble the unrelated grantee."""
+    for seed in range(100):
+        sampled = D.sample_deed(
+            random.Random(seed), pins={"grantor_married": True}
+        )
+        assert sampled["grantor"].split()[-1] != sampled["grantee"].split()[-1]
+        assert sampled["grantor_spouse"].split()[-1] == sampled["grantor"].split()[-1]
+        assert len({sampled["grantor"], sampled["grantee"], sampled["grantor_spouse"]}) == 3
+
+
 def test_consideration_coupling(model, pdf):
     """deed.consideration-coupling: deed, acknowledgment and RTF-1 share consideration."""
     token = f"${model['consideration']:,.2f}"
@@ -142,7 +153,7 @@ def test_public_display_facts_cover_accessible_deed_fields():
         pins={
             "execution_date": "1997-10-17",
             "consideration": 425_000,
-            "grantor_married": False,
+            "grantor_married": True,
             "notary_name": "Elise North",
         },
     )
@@ -152,6 +163,15 @@ def test_public_display_facts_cover_accessible_deed_fields():
     assert facts["notary_name"] == "Elise North"
     assert facts["prior_book"] == D.DEFAULT_CANON["prior_book"]
     assert facts["prior_page"] == D.DEFAULT_CANON["prior_page"]
+    assert facts["grantor_name"]
+    assert facts["grantee_name"]
+    assert facts["grantor_address"]
+    assert facts["grantee_address"]
+    assert facts["grantor_spouse_name"]
+    assert facts["signatory_names"] == facts["acknowledgment_names"]
+    assert facts["signatory_names"] == [
+        facts["grantor_name"], facts["grantor_spouse_name"]
+    ]
 
 
 def test_prepared_return_recording(model, pdf):

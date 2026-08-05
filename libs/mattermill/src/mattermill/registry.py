@@ -84,6 +84,7 @@ class DocumentClass:
     capture_window: tuple[int, int] = (2015, 2021)
     takes_pins: bool = False
     takes_canon: bool = False
+    public_facts: Callable[[dict], dict] | None = None
 
     def describe(self) -> dict:
         return {"name": self.name, "summary": self.summary,
@@ -225,11 +226,12 @@ register(DocumentClass(
     pins={"execution_date": "ISO date in 1997",
           "consideration": "whole-dollar transfer consideration",
           "grantor_married": "bool — grantor capacity",
+          "notary_name": "str — displayed notary identity",
           "new_construction": "bool — period RTF exemption",
           "partial_exemption": "none | senior | blind | disabled"},
     sample=deed_nj.sample_deed, render=deed_nj.render_deed,
     profiles=SHEETFED, capture_window=(2010, 2016),
-    takes_pins=True, takes_canon=True,
+    takes_pins=True, takes_canon=True, public_facts=deed_nj.public_display_facts,
 ))
 
 register(DocumentClass(
@@ -325,4 +327,6 @@ def emit(name: str, *, pins: dict | None = None, seed: int = 0,
         "bytes": len(data),
         "ground_truth": [defect] if defect else [],
     }
+    if cls.public_facts is not None:
+        manifest["display_facts"] = cls.public_facts(model)
     return data, manifest

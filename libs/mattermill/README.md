@@ -61,6 +61,12 @@ can be used as a scorable fixture. Experiment rubrics, model receipts, scores,
 and standing belong to the user's verismill data store; they are not package
 metadata and are not copied into emitted manifests.
 
+Classes may also publish a narrow `display_facts` projection for downstream
+accessible renditions. For example, `deed_nj_1997` exposes the displayed
+execution, consideration, property, prior-deed, capacity, and notary fields;
+the notary can be fixed with `pins={"notary_name": "Elise North"}`. This is
+displayed document data, not experiment standing or hidden narrative truth.
+
 ## The classes, and what each is made of
 
 ```python
@@ -174,7 +180,7 @@ Minnesota's algebra under a different heading.
 
 ## Status
 
-0.16.0 — API is unstable before 1.0 and will move while the foundry's realism
+0.17.0 — API is unstable before 1.0 and will move while the foundry's realism
 climb drives new emitters. The library is
 developed inside [verismill](https://github.com/jarredparrett/verismill-lean)
 as its rendering platform; it has no verismill dependencies.

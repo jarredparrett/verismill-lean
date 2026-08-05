@@ -8,7 +8,7 @@ import random
 import pypdfium2 as pdfium
 import pytest
 
-from mattermill import deed_nj as D
+from mattermill import deed_nj as D, registry
 
 META = {"producer": "Canon DR-C240 / Adobe Paper Capture",
         "creator": "Canon DR-C240", "created": "2012-06-18 11:02:03",
@@ -107,6 +107,51 @@ def test_execution_acknowledgment(model, pdf):
     # one pasted signature image.
     assert D.assets.signature_png(model["scan_seed"] + 101, name=model["grantor"]) != \
         D.assets.signature_png(model["scan_seed"] + 401, name=model["grantor"])
+
+
+def test_acknowledgment_number_agreement():
+    """deed.acknowledgment-number-agreement: signer count controls acknowledgment grammar."""
+    single = D.sample_deed(random.Random(1997), pins={
+        "grantor_married": False, "notary_name": "Elise North"})
+    single_text = " ".join(_pages(D.render_deed(single, metadata=META)))
+    assert "the Grantor is the person named" in single_text
+    assert "they are the persons named" not in single_text
+
+    joined = D.sample_deed(random.Random(1997), pins={
+        "grantor_married": True, "notary_name": "Elise North"})
+    joined_text = " ".join(_pages(D.render_deed(joined, metadata=META)))
+    assert "they are the persons named" in joined_text
+
+
+def test_pinned_notary_identity():
+    """deed.pinned-notary-identity: the caller controls one non-party notary identity."""
+    model = D.sample_deed(random.Random(1997), pins={"notary_name": "Elise North"})
+    assert model["notary"] == "Elise North"
+    assert "Elise North, Notary Public" in " ".join(
+        _pages(D.render_deed(model, metadata=META))
+    )
+    with pytest.raises(ValueError, match="non-empty"):
+        D.sample_deed(random.Random(1997), pins={"notary_name": " "})
+
+
+def test_public_display_facts_cover_accessible_deed_fields():
+    """deed.public-display-facts: the manifest exposes the accessible field contract."""
+    _, manifest = registry.emit(
+        "deed_nj_1997",
+        seed=1997,
+        pins={
+            "execution_date": "1997-10-17",
+            "consideration": 425_000,
+            "grantor_married": False,
+            "notary_name": "Elise North",
+        },
+    )
+    facts = manifest["display_facts"]
+    assert facts["execution_date"] == "1997-10-17"
+    assert facts["consideration"] == 425_000
+    assert facts["notary_name"] == "Elise North"
+    assert facts["prior_book"] == D.DEFAULT_CANON["prior_book"]
+    assert facts["prior_page"] == D.DEFAULT_CANON["prior_page"]
 
 
 def test_prepared_return_recording(model, pdf):

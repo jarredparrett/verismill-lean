@@ -19,6 +19,10 @@ SCORER_METRICS = {
         "k", "overall_min", "overall_mean", "coherence_profile",
         "synthetic_calls", "discrimination_accuracy", "coverage_ok",
     }),
+    "absolute-v0.3": frozenset({
+        "k", "overall_min", "overall_mean", "coherence_profile",
+        "synthetic_calls", "discrimination_accuracy", "coverage_ok",
+    }),
     "pairwise-v1": frozenset({
         "synth_vs_real_accuracy", "real_vs_real_pick_rate", "trials_scored",
     }),

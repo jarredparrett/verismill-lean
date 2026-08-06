@@ -287,6 +287,167 @@ def score_absolute_batch(verdicts: dict[str, dict],
     return out
 
 
+# ===========================================================================
+# Rubric-driven absolute review — judges.protocol v0.3.0
+#
+# v0.2 remains immutable because persisted evaluations replay it. v0.3 fixes
+# the structural mismatch where a frozen domain rubric was displayed in the
+# experiment but the judge prompt and parser silently substituted seven legal-
+# instrument dimensions and three execution disqualifiers.
+# ===========================================================================
+
+
+def rubric_dimension_ids(rubric: dict) -> tuple[str, ...]:
+    """Return the frozen rubric's ordered dimension identifiers."""
+    return tuple(dimension["id"] for dimension in rubric["dimensions"])
+
+
+def assign_rubric_lenses(rubric: dict, k: int) -> list[list[str]]:
+    """Partition primary dimension responsibility across fresh judges.
+
+    Every judge still scores every dimension. The primary groups ensure the
+    panel deeply covers the full declared rubric even when dimensions outnumber
+    judges, without importing domain assumptions from a different artifact.
+    """
+    if k < MIN_BLIND_PANEL_SIZE:
+        raise ValueError(
+            f"absolute blind measurement requires at least {MIN_BLIND_PANEL_SIZE} fresh judges"
+        )
+    groups: list[list[str]] = [[] for _ in range(k)]
+    for index, dimension_id in enumerate(rubric_dimension_ids(rubric)):
+        groups[index % k].append(dimension_id)
+    # A rubric with fewer dimensions than judges still assigns a stable focus
+    # by cycling; coverage depends on the union, not duplicated attention.
+    ids = rubric_dimension_ids(rubric)
+    for index, group in enumerate(groups):
+        if not group:
+            group.append(ids[index % len(ids)])
+    return groups
+
+
+def rubric_coverage_ok(rubric: dict, assigned: list[list[str]]) -> bool:
+    """The assigned primary groups cover every frozen rubric dimension."""
+    return set(rubric_dimension_ids(rubric)).issubset(
+        dimension for group in assigned for dimension in group
+    )
+
+
+def build_rubric_absolute_brief(*, rubric: dict, persona: str,
+                                primary_dimensions: list[str]) -> str:
+    """Build a two-pass blind brief from the frozen rubric itself."""
+    dimensions = []
+    for dimension in rubric["dimensions"]:
+        anchors = json.dumps(dimension["anchors"], sort_keys=True)
+        dimensions.append(
+            f"- {dimension['id']}: {dimension['description']} Anchors: {anchors}"
+        )
+    schema = {
+        "glance_impression": "one-line gut read from PASS 1, before reading text",
+        "authenticity": "genuine | synthetic",
+        "confidence": "0..1",
+        "dimension_scores": {
+            dimension: "0..100" for dimension in rubric_dimension_ids(rubric)
+        },
+        "tells": [{
+            "path": "file the tell is in",
+            "quote_or_region": (
+                "exact text span, OR {page:int, bbox_norm:[x0,y0,x1,y1]} "
+                "for a visual tell"
+            ),
+            "rationale": "why it indicates synthesis",
+        }],
+    }
+    return (
+        f"You are a {persona}. A colleague forwarded you ONE artifact and asked "
+        f"whether it is a GENUINE working artifact or a SYNTHESIZED specimen. "
+        f"Use only the artifact provided and the frozen criteria below.\n\n"
+        f"PASS 1 — GLANCE (do this FIRST, before reading text). View every page "
+        f"as a rendered image at full scale and record your immediate material, "
+        f"visual, and institutional impression.\n\n"
+        f"PASS 2 — DEEP READ. Score EVERY dimension. Give extra scrutiny to your "
+        f"assigned primary dimensions: {', '.join(primary_dimensions)}.\n\n"
+        f"FROZEN DIMENSIONS (100 means the rubric's 100 anchor):\n"
+        f"{'\n'.join(dimensions)}\n\n"
+        f"Return ONLY this JSON (no overall score — the scorer computes the "
+        f"minimum across dimensions):\n{json.dumps(schema, indent=2)}"
+    )
+
+
+def parse_rubric_absolute_verdict(text: str, dimension_ids: tuple[str, ...]) -> dict:
+    """Validate a v0.3 verdict against the exact frozen dimension set."""
+    m = re.search(r"\{.*\}", text, re.S)
+    if not m:
+        raise ValueError("no JSON object in judge output")
+    verdict = json.loads(m.group(0))
+    if verdict.get("authenticity") not in ("genuine", "synthetic"):
+        raise ValueError(
+            f"authenticity must be genuine|synthetic, got {verdict.get('authenticity')!r}"
+        )
+    scores = verdict.get("dimension_scores") or {}
+    if set(scores) != set(dimension_ids):
+        missing = sorted(set(dimension_ids) - set(scores))
+        extra = sorted(set(scores) - set(dimension_ids))
+        raise ValueError(
+            f"dimension_scores must match frozen rubric; missing={missing}, extra={extra}"
+        )
+    for dimension in dimension_ids:
+        score = scores[dimension]
+        if not isinstance(score, (int, float)) or not 0 <= score <= 100:
+            raise ValueError(f"dimension {dimension!r} must be a 0..100 score")
+    verdict.setdefault("confidence", None)
+    for tell in verdict.setdefault("tells", []):
+        if "path" not in tell or "rationale" not in tell:
+            raise ValueError("tell missing path/rationale")
+        locus = tell.get("quote_or_region", tell.get("quote"))
+        has_region = isinstance(locus, dict) and \
+            "page" in locus and "bbox_norm" in locus
+        if not (isinstance(locus, str) or has_region):
+            raise ValueError(
+                "tell needs a locus: a text quote OR {page, bbox_norm}"
+            )
+    return verdict
+
+
+def score_rubric_absolute_batch(
+        verdicts: dict[str, dict], dimension_ids: tuple[str, ...],
+        assigned_lenses: list[list[str]] | None = None) -> dict:
+    """Aggregate v0.3 with the same conservative min rule, no foreign vetoes."""
+    overall_by_judge = {
+        judge: min(verdict["dimension_scores"].values())
+        for judge, verdict in verdicts.items()
+    }
+    overalls = list(overall_by_judge.values())
+    dimension_means = {
+        dimension: round(sum(
+            verdict["dimension_scores"][dimension]
+            for verdict in verdicts.values()
+        ) / len(verdicts))
+        for dimension in dimension_ids
+    }
+    synthetic_calls = sum(
+        1 for verdict in verdicts.values()
+        if verdict["authenticity"] == "synthetic"
+    )
+    output = {
+        "k": len(verdicts),
+        "overall_min": min(overalls),
+        "overall_mean": round(sum(overalls) / len(overalls)),
+        "overall_by_judge": overall_by_judge,
+        "dimension_means": dimension_means,
+        "coherence_profile": round(
+            sum(dimension_means.values()) / len(dimension_means)
+        ),
+        "synthetic_calls": synthetic_calls,
+        "discrimination_accuracy": round(synthetic_calls / len(verdicts), 2),
+    }
+    if assigned_lenses is not None:
+        covered = set(dimension_ids).issubset(
+            dimension for group in assigned_lenses for dimension in group
+        )
+        output["coverage_ok"] = covered
+    return output
+
+
 def parse_verdict(text: str) -> dict:
     """Extract and validate a verdict JSON from judge output."""
     m = re.search(r"\{.*\}", text, re.S)

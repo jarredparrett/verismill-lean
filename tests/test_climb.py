@@ -228,6 +228,81 @@ def test_score_absolute_batch_reports_distribution():
     assert out["coverage_ok"] is True
 
 
+# -- judges.protocol v0.3.0 (rubric-driven absolute review) -----------------
+
+
+def _rubric_v3():
+    return {
+        "version": "archival.1",
+        "scorer": "absolute-v0.3",
+        "dimensions": [
+            {"id": "capture", "description": "Looks like a captured object",
+             "anchors": {"0": "flat", "100": "source-calibrated"}},
+            {"id": "working_hand", "description": "Marks read as a working hand",
+             "anchors": {"0": "font", "100": "credible hand"}},
+            {"id": "institutional_use", "description": "Record owns its fields",
+             "anchors": {"0": "prop", "100": "ordinary record"}},
+            {"id": "reproducibility", "description": "Evidence is stable",
+             "anchors": {"0": "unstable", "100": "reproducible"}},
+        ],
+        "acceptance": {"rules": [
+            {"metric": "overall_min", "operator": ">=", "value": 80},
+        ]},
+    }
+
+
+def test_rubric_absolute_brief_uses_only_frozen_dimensions():
+    """v0.3 prompts the declared artifact rubric, not lease execution criteria."""
+    rubric = _rubric_v3()
+    groups = judges.assign_rubric_lenses(rubric, 3)
+    brief = judges.build_rubric_absolute_brief(
+        rubric=rubric, persona="archival records conservator",
+        primary_dimensions=groups[0],
+    )
+    assert set(d for group in groups for d in group) == \
+        set(judges.rubric_dimension_ids(rubric))
+    for dimension in judges.rubric_dimension_ids(rubric):
+        assert dimension in brief
+    assert "lead-paint" not in brief
+    assert "required disclosures" not in brief
+    assert "signature_is_a_hand" not in brief
+
+
+def test_rubric_absolute_parser_requires_exact_dimension_set():
+    rubric = _rubric_v3()
+    ids = judges.rubric_dimension_ids(rubric)
+    verdict = {
+        "authenticity": "genuine", "confidence": 0.8,
+        "dimension_scores": {dimension: 88 for dimension in ids},
+        "tells": [],
+    }
+    assert judges.parse_rubric_absolute_verdict(
+        json.dumps(verdict), ids
+    )["dimension_scores"] == verdict["dimension_scores"]
+    verdict["dimension_scores"]["foreign_legal_dimension"] = 90
+    with pytest.raises(ValueError, match="match frozen rubric"):
+        judges.parse_rubric_absolute_verdict(json.dumps(verdict), ids)
+
+
+def test_rubric_absolute_batch_uses_declared_min_and_coverage():
+    rubric = _rubric_v3()
+    ids = judges.rubric_dimension_ids(rubric)
+    verdicts = {
+        "J1": {"authenticity": "genuine",
+               "dimension_scores": {dimension: 90 for dimension in ids}},
+        "J2": {"authenticity": "synthetic",
+               "dimension_scores": {**dict.fromkeys(ids, 86), "working_hand": 62}},
+        "J3": {"authenticity": "genuine",
+               "dimension_scores": {dimension: 82 for dimension in ids}},
+    }
+    lenses = judges.assign_rubric_lenses(rubric, 3)
+    result = judges.score_rubric_absolute_batch(verdicts, ids, lenses)
+    assert result["overall_min"] == 62
+    assert result["dimension_means"]["working_hand"] < \
+        result["dimension_means"]["capture"]
+    assert result["coverage_ok"] is True
+
+
 # -- atlas: region tells + fix-verification (FM4, FM2) -----------------------
 
 

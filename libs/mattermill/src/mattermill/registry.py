@@ -34,10 +34,11 @@ from __future__ import annotations
 import hashlib
 import random
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Callable
 
 from . import (__version__, acord, acord130, bill_of_sale, deed_nj, diligence,
-               estate_ma, lease_nj, nj_birth, vintage)
+               estate_ma, lease_nj, nj_birth, observatory, vintage)
 
 # ---------------------------------------------------------------------------
 # Metadata profiles — how the artifact was captured, by era.
@@ -84,6 +85,7 @@ class DocumentClass:
     capture_window: tuple[int, int] = (2015, 2021)
     takes_pins: bool = False
     takes_canon: bool = False
+    public_facts: Callable[[dict], dict] | None = None
 
     def describe(self) -> dict:
         return {"name": self.name, "summary": self.summary,
@@ -164,6 +166,37 @@ register(DocumentClass(
     sample=diligence.sample_packet, render=diligence.render_packet,
     profiles=SHEETFED, capture_window=(2015, 2020), takes_canon=True,
 ))
+
+register(DocumentClass(
+    name="observatory_packet_1937",
+    summary="A noncanonical review binder composing the independently "
+            "forgeable 1937 private-observatory evidence objects.",
+    module="mattermill.observatory",
+    era="1937",
+    substrate="scan of a mixed handwritten and typewritten observatory file",
+    pins={},
+    sample=observatory.sample_packet, render=observatory.render_packet,
+    profiles=PLANETARY, capture_window=(2016, 2021),
+    takes_canon=True, public_facts=observatory.public_display_facts,
+))
+
+for _artifact_id, _class_name, _page_index in observatory.ARTIFACT_SPECS:
+    register(DocumentClass(
+        name=_class_name,
+        summary=("One independently forgeable 1937 private-observatory "
+                 f"object: {observatory.PAGE_MARKERS[_page_index].lower()}."),
+        module="mattermill.observatory",
+        era="1937",
+        substrate="scan of one handwritten or typewritten observatory object",
+        pins={},
+        sample=observatory.sample_packet,
+        render=partial(observatory.render_artifact, artifact_id=_artifact_id),
+        profiles=PLANETARY,
+        capture_window=(2016, 2021),
+        takes_canon=True,
+        public_facts=partial(
+            observatory.public_artifact_facts, artifact_id=_artifact_id),
+    ))
 
 register(DocumentClass(
     name="msa_1987",
@@ -325,4 +358,6 @@ def emit(name: str, *, pins: dict | None = None, seed: int = 0,
         "bytes": len(data),
         "ground_truth": [defect] if defect else [],
     }
+    if cls.public_facts is not None:
+        manifest["display_facts"] = cls.public_facts(model, defect=defect)
     return data, manifest

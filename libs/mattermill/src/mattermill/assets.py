@@ -14,10 +14,12 @@ Two sources, one contract (seeded PNG bytes out):
 from __future__ import annotations
 
 import io
+import hashlib
 import math
 import random
+from importlib import resources
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 
 def _smooth_path(rng: random.Random, w: int, h: int, n_points: int) -> list[tuple]:
@@ -203,6 +205,220 @@ def signature_png(seed: int, *, name: str | None = None,
     img = img.rotate(rng.uniform(-3.5, 3.5), expand=True, fillcolor=(0, 0, 0, 0))
     buf = io.BytesIO()
     img.save(buf, "PNG")
+    return buf.getvalue()
+
+
+_WORKING_HAND_FONTS = (
+    "Caveat-Regular.ttf",
+    "PatrickHand-Regular.ttf",
+    "HomemadeApple-Regular.ttf",
+)
+
+
+def handwriting_style(writer: str) -> dict[str, object]:
+    """Return the stable physical style assigned to one working hand.
+
+    The writer identity, rather than the field seed, chooses the glyph source,
+    slant, tracking, pressure and default ink.  A writer therefore keeps one
+    recognizable hand across documents while each entry still has small
+    seeded pen-placement variation.
+    """
+    if not writer.strip():
+        raise ValueError("a working-hand writer identity is required")
+    digest = hashlib.sha256(writer.casefold().strip().encode("utf-8")).digest()
+    palettes = (
+        (24, 30, 45),      # blue-black fountain ink
+        (45, 39, 34),      # aged black/brown ink
+        (31, 38, 43),      # neutral iron-black ink
+        (48, 45, 55),      # faint violet-black ink
+    )
+    return {
+        "font": _WORKING_HAND_FONTS[digest[0] % len(_WORKING_HAND_FONTS)],
+        "slant": -0.10 + (digest[1] / 255.0) * 0.22,
+        "tracking": 0.91 + (digest[2] / 255.0) * 0.13,
+        "pressure": 178 + digest[3] % 34,
+        "stroke_width": 0,
+        "ink": palettes[digest[5] % len(palettes)],
+        "join_probability": 0.22 + (digest[7] / 255.0) * 0.46,
+        "nib_bias": -0.045 + (digest[8] / 255.0) * 0.09,
+    }
+
+
+def _working_font(filename: str, size: int) -> ImageFont.FreeTypeFont:
+    path = resources.files("mattermill").joinpath("data", "fonts", filename)
+    return ImageFont.truetype(str(path), size=size)
+
+
+def _working_glyph(font: ImageFont.FreeTypeFont, ch: str, *,
+                   rng: random.Random, style: dict[str, object],
+                   color: tuple[int, int, int]) -> Image.Image:
+    """Instantiate one glyph through a seeded pen event.
+
+    The bundled face supplies a legible skeleton, but the displayed mark is a
+    locally rescaled, sheared, rotated and pressure-varied instance. Repeated
+    letters therefore do not reuse one font mask, while the writer-level
+    slant, nib and joining tendencies remain stable.
+    """
+    canvas = Image.new("RGBA", (180, 170), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
+    pressure = max(154, min(224, int(style["pressure"]) + rng.randint(-18, 13)))
+    stroke = int(style["stroke_width"])
+    draw.text(
+        (28, 106), ch, font=font, anchor="ls", fill=color + (pressure,),
+        stroke_width=stroke,
+        stroke_fill=color + (max(156, pressure - 14),),
+    )
+    bbox = canvas.getbbox()
+    if bbox is None:
+        return Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+    glyph = canvas.crop((max(0, bbox[0] - 8), max(0, bbox[1] - 8),
+                         min(canvas.width, bbox[2] + 8),
+                         min(canvas.height, bbox[3] + 8)))
+    width_factor = rng.uniform(0.77, 1.22)
+    height_factor = rng.uniform(0.88, 1.11)
+    glyph = glyph.resize(
+        (max(2, round(glyph.width * width_factor)),
+         max(2, round(glyph.height * height_factor))),
+        Image.Resampling.BICUBIC,
+    )
+    local_shear = float(style["nib_bias"]) + rng.uniform(-0.055, 0.055)
+    extra = int(abs(local_shear) * glyph.height) + 4
+    glyph = glyph.transform(
+        (glyph.width + extra, glyph.height), Image.Transform.AFFINE,
+        (1, -local_shear, extra if local_shear > 0 else 0, 0, 1, 0),
+        resample=Image.Resampling.BICUBIC,
+    )
+    glyph = glyph.rotate(
+        rng.uniform(-3.1, 3.1), resample=Image.Resampling.BICUBIC,
+        expand=True, fillcolor=(0, 0, 0, 0),
+    )
+    # A light upstroke occasionally loses an edge pixel.  This changes the
+    # physical outline without the uniform inflation that made earlier output
+    # look like a modern felt-tip marker.
+    if rng.random() < 0.24 and min(glyph.size) > 4:
+        alpha = glyph.getchannel("A").filter(ImageFilter.MinFilter(3))
+        if alpha.getbbox() is not None:
+            glyph.putalpha(alpha)
+    # Low-frequency deposition variation follows the nib path within each
+    # mark. It remains subtle at record scale but avoids a perfectly uniform
+    # digital stroke even when the glyph skeleton is similar.
+    alpha = glyph.getchannel("A")
+    deposition = Image.new("L", glyph.size, 255)
+    dd = ImageDraw.Draw(deposition)
+    phase = rng.uniform(0, math.tau)
+    for y in range(glyph.height):
+        strength = 218 + round(25 * math.sin(phase + y * 0.19))
+        dd.line((0, y, glyph.width, y), fill=max(186, min(244, strength)))
+    glyph.putalpha(ImageChops.multiply(alpha, deposition))
+    bbox = glyph.getbbox()
+    return glyph.crop(bbox) if bbox else glyph
+
+
+def handwriting_png(seed: int, *, text: str, writer: str,
+                    ink: tuple[int, int, int] | None = None) -> bytes:
+    """Render legible seeded working text in a stable writer-specific hand.
+
+    This is deliberately separate from :func:`signature_png`: record entries
+    instantiate the actual glyphs, numerals and punctuation supplied by the
+    caller instead of turning an entire field into a signature-like flourish.
+    Font files are bundled authoring assets, so the renderer remains offline.
+    """
+    if not text:
+        raise ValueError("working-hand text must not be empty")
+    style = handwriting_style(writer)
+    font = _working_font(str(style["font"]), 72)
+    rng = random.Random(f"working-hand:{seed}:{writer}:{text}")
+    color = tuple(ink or style["ink"])
+    tracking = float(style["tracking"])
+
+    if text == '"':
+        # Ditto marks in working ledgers are two quick pen gestures, not a
+        # repeated typographic quotation glyph. Their span, pressure, angle,
+        # and relative baseline vary per entry while retaining the writer's
+        # stable slant and ink.
+        image = Image.new("RGBA", (58, 54), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        for index in range(2):
+            x = 15 + index * rng.randint(17, 22) + rng.randint(-2, 2)
+            y0 = rng.randint(11, 17)
+            y1 = rng.randint(34, 43)
+            lean = rng.randint(4, 10)
+            alpha = max(146, min(222, int(style["pressure"]) + rng.randint(-24, 12)))
+            draw.line((x + lean, y0, x, y1), fill=color + (alpha,),
+                      width=rng.choice((1, 1, 2)))
+        image = image.rotate(
+            rng.uniform(-3.5, 3.5), resample=Image.Resampling.BICUBIC,
+            expand=True, fillcolor=(0, 0, 0, 0),
+        )
+        bbox = image.getbbox()
+        if bbox:
+            image = image.crop(bbox)
+        buf = io.BytesIO()
+        image.save(buf, "PNG")
+        return buf.getvalue()
+
+    advances = [max(8.0, font.getlength(ch) * tracking) for ch in text]
+    width = max(32, int(sum(advances) * 1.18 + 76))
+    height = 146
+    baseline = 102
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    x = 26.0
+    previous_alnum = False
+    for index, (ch, advance) in enumerate(zip(text, advances)):
+        if ch.isspace():
+            x += advance
+            previous_alnum = False
+            continue
+        # Low-amplitude, correlated baseline motion reads as ordinary working
+        # pen placement at document scale without damaging character identity.
+        wave = math.sin(index * 0.72 + (seed % 17)) * 1.9
+        y = baseline + wave + rng.uniform(-1.15, 1.15)
+        glyph = _working_glyph(font, ch, rng=rng, style=style, color=color)
+        if previous_alnum and ch.isalnum() and \
+                rng.random() < float(style["join_probability"]):
+            join_y = y + rng.uniform(-0.8, 0.8)
+            join_alpha = max(112, int(style["pressure"]) - rng.randint(38, 64))
+            draw.line(
+                (x - max(3.0, advance * 0.16), join_y,
+                 x + max(2.0, advance * 0.06), join_y + rng.uniform(-1.0, 1.0)),
+                fill=color + (join_alpha,), width=1,
+            )
+        descender = 7 if ch.lower() in _DESCENDERS else 0
+        image.alpha_composite(
+            glyph,
+            (round(x - 5), round(y - glyph.height + 10 + descender)),
+        )
+        x += advance * rng.uniform(0.87, 1.13) + rng.uniform(-0.65, 0.65)
+        previous_alnum = ch.isalnum()
+
+    bbox = image.getbbox()
+    if bbox is None:  # pragma: no cover - guarded by nonempty text
+        raise ValueError("working-hand text produced no visible glyphs")
+    image = image.crop((max(0, bbox[0] - 8), max(0, bbox[1] - 8),
+                        min(image.width, bbox[2] + 8), min(image.height, bbox[3] + 8)))
+
+    # Writer-specific shear supplies a stable slant. Pillow's affine matrix
+    # maps output coordinates back to source coordinates, hence the negative.
+    shear = float(style["slant"])
+    extra = int(abs(shear) * image.height) + 6
+    image = image.transform(
+        (image.width + extra, image.height), Image.Transform.AFFINE,
+        (1, -shear, extra if shear > 0 else 0, 0, 1, 0),
+        resample=Image.Resampling.BICUBIC,
+    )
+    image = image.rotate(
+        ((hashlib.sha256(writer.encode("utf-8")).digest()[6] / 255.0) - 0.5)
+        * 1.8 + rng.uniform(-0.22, 0.22),
+        resample=Image.Resampling.BICUBIC, expand=True,
+        fillcolor=(0, 0, 0, 0),
+    )
+    image = image.filter(ImageFilter.GaussianBlur(0.18))
+    bbox = image.getbbox()
+    if bbox:
+        image = image.crop(bbox)
+    buf = io.BytesIO()
+    image.save(buf, "PNG")
     return buf.getvalue()
 
 

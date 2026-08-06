@@ -166,6 +166,46 @@ def test_full_rejected_cycle_is_resumable_and_replayable(tmp_path):
         resumed.record_absolute_blind_evaluation(judge_runs=blind)
 
 
+def test_artifact_result_is_a_public_materialization_boundary(tmp_path, monkeypatch):
+    """experiment.artifact-result: downstreams receive bytes and attestation
+    without reading the private object store."""
+    exp = prepared(tmp_path)
+    candidate_ref = emitted_candidate(
+        exp, monkeypatch, class_name="test_class", mattermill="test-version")
+
+    result = exp.artifact_result(candidate_ref)
+
+    assert result["schema_version"] == "1.0"
+    assert result["artifact"] == b"%PDF-1.4\ntest_class-test-version\n"
+    assert result["manifest"]["sha256"] == result["attestation"]["artifact_hash"]
+    assert result["attestation"] == {
+        "schema_version": "1.0",
+        "experiment_id": "standard_form",
+        "experiment_revision": 1,
+        "candidate": candidate_ref,
+        "artifact_hash": result["manifest"]["sha256"],
+        "manifest_hash": exp.view("user")["current_candidate"]["manifest"],
+        "emitter": {"class": "test_class", "mattermill": "test-version"},
+        "rubric_hash": exp.state["refs"]["rubric"],
+        "requirements_hash": exp.state["refs"]["requirements"],
+        "measurement": {
+            "status": "development_only", "evaluation": None, "standing": None,
+        },
+        "verification": exp.verify(),
+    }
+    assert result["attestation"]["verification"]["ok"]
+    assert Experiment.open(exp.root).artifact_result()["artifact"] == result["artifact"]
+
+
+def test_artifact_result_rejects_missing_or_foreign_candidate(tmp_path):
+    """experiment.artifact-result-membership: only recorded candidates export."""
+    exp = prepared(tmp_path)
+    with pytest.raises(ValueError, match="recorded candidate"):
+        exp.artifact_result()
+    with pytest.raises(ValueError, match="not part of this experiment"):
+        exp.artifact_result(sha256("foreign"))
+
+
 def test_harvest_repair_is_persisted_but_not_resolved(tmp_path):
     exp = prepared(tmp_path)
     candidate(exp)
@@ -486,6 +526,79 @@ def test_heterogeneous_blind_panel_tasks_use_only_sealed_artifact(tmp_path):
     assert any("required disclosures" in task.instructions for task in tasks)
     assert any("signatures, initials, seals" in task.instructions for task in tasks)
     assert all("baseline omitted" not in task.instructions for task in tasks)
+
+
+def test_rubric_driven_absolute_panel_replays_exact_frozen_dimensions(tmp_path):
+    """absolute-v0.3 prompts, parses, scores, and replays the declared rubric."""
+    rubric_v3 = {
+        "version": "archival.1",
+        "scorer": "absolute-v0.3",
+        "dimensions": [
+            {"id": "capture", "description": "Captured-object fidelity",
+             "anchors": {"0": "flat", "100": "source-calibrated"}},
+            {"id": "working_hand", "description": "Working-hand fidelity",
+             "anchors": {"0": "font", "100": "credible hand"}},
+            {"id": "institutional_use", "description": "Ordinary record behavior",
+             "anchors": {"0": "prop", "100": "ordinary record"}},
+            {"id": "reproducibility", "description": "Stable evidence",
+             "anchors": {"0": "unstable", "100": "reproducible"}},
+        ],
+        "acceptance": {"rules": [
+            {"metric": "overall_min", "operator": ">=", "value": 80},
+            {"metric": "coverage_ok", "operator": "==", "value": True},
+        ]},
+    }
+    exp = prepared(tmp_path, rubric_v3)
+    cand, _ = candidate(exp)
+    development = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[development], decision="select",
+        score={"capture": 90},
+        findings=[{"observation": "ready for the frozen archival panel",
+                   "evidence": "full-scale rendered inspection",
+                   "requirement": "form.layout"}],
+    )
+    models = [ModelConfig(provider="test", model=f"rubric-{i}")
+              for i in (1, 2, 3)]
+    tasks = exp.absolute_judge_tasks(
+        class_name="archival_record", persona="records conservator", models=models
+    )
+    expected_dimensions = {
+        dimension["id"] for dimension in rubric_v3["dimensions"]
+    }
+    assert all(
+        set(task.response_schema["dimension_scores"]) == expected_dimensions
+        for task in tasks
+    )
+    assert all("disqualifiers" not in task.response_schema for task in tasks)
+    assert all("lead-paint" not in task.instructions for task in tasks)
+
+    judge_refs = []
+    for index, task in enumerate(tasks, 1):
+        parsed = {
+            "glance_impression": "credible working archive capture",
+            "authenticity": "genuine", "confidence": 0.82,
+            "dimension_scores": {
+                dimension: 91 for dimension in expected_dimensions
+            },
+            "tells": [],
+        }
+        judge_refs.append(exp.record_agent_run(AgentRun(
+            run_id=f"rubric-blind-{index}", agent_id=f"rubric-agent-{index}",
+            context_id=f"rubric-context-{index}", role="blind_judge",
+            model=task.model, prompt_hash=task.prompt_hash(),
+            input_hashes=task.input_hashes(), raw_response=json.dumps(parsed),
+            parsed_output=parsed,
+        )))
+    evaluation_ref = exp.record_absolute_blind_evaluation(
+        judge_runs=judge_refs
+    )
+    evaluation = exp.store.read_json(evaluation_ref)
+    assert evaluation["scorer"] == "absolute-v0.3"
+    assert evaluation["scores"]["overall_min"] == 91
+    assert evaluation["scores"]["coverage_ok"] is True
+    assert exp.phase == Phase.ACCEPTED
+    assert exp.verify()["ok"]
 
 
 def test_absolute_measurement_requires_three_judges_and_all_lenses(tmp_path):

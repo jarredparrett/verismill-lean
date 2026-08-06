@@ -41,7 +41,7 @@ DEFAULT_CANON = {
     "prior_book": "5188", "prior_page": "214",
 }
 _CANON_KEYS = frozenset(DEFAULT_CANON)
-_PINS = {"execution_date", "consideration", "grantor_married",
+_PINS = {"execution_date", "consideration", "grantor_married", "notary_name",
          "new_construction", "partial_exemption"}
 
 FIRST = ["Adrian", "Camille", "Daniel", "Elena", "Farah", "Gabriel", "Hannah",
@@ -98,6 +98,11 @@ def _name(rng: random.Random, *, sex: str | None = None) -> str:
     return f"{rng.choice(first)} {rng.choice(LAST)}"
 
 
+def _first_name(rng: random.Random, *, sex: str | None = None) -> str:
+    first = MALE_FIRST if sex == "male" else FEMALE_FIRST if sex == "female" else FIRST
+    return rng.choice(first)
+
+
 def sample_deed(rng: random.Random, *, pins: dict | None = None,
                 canon: dict | None = None) -> dict:
     pins = dict(pins or {})
@@ -120,7 +125,10 @@ def sample_deed(rng: random.Random, *, pins: dict | None = None,
     grantor_sex = rng.choice(["female", "male"])
     grantor = _name(rng, sex=grantor_sex)
     grantee = _name(rng)
-    while grantee == grantor:
+    # The grantee represents a different household.  A shared surname made a
+    # later spouse signature look like a party mismatch even though each field
+    # was locally populated correctly.
+    while grantee.split()[-1] == grantor.split()[-1]:
         grantee = _name(rng)
     consideration = int(pins.get("consideration", rng.randrange(175_000, 451_000, 500)))
     recorded = _next_clerk_day(execution + dt.timedelta(days=rng.randint(3, 14)))
@@ -134,9 +142,17 @@ def sample_deed(rng: random.Random, *, pins: dict | None = None,
     new_construction = bool(pins.get("new_construction", False))
     married = bool(pins.get("grantor_married", rng.choice([True, False])))
     spouse_sex = "female" if grantor_sex == "male" else "male"
-    spouse = _name(rng, sex=spouse_sex) if married else None
-    while spouse in {grantor, grantee}:
-        spouse = _name(rng)
+    spouse = (
+        f"{_first_name(rng, sex=spouse_sex)} {grantor.split()[-1]}"
+        if married else None
+    )
+    while spouse == grantor:
+        spouse = f"{_first_name(rng, sex=spouse_sex)} {grantor.split()[-1]}"
+    notary = str(pins.get("notary_name", "Avery North")).strip()
+    if not notary:
+        raise ValueError("notary_name must be non-empty")
+    if notary in {grantor, grantee, spouse}:
+        raise ValueError("notary_name must not collide with a deed party")
     partial_exemption = str(pins.get("partial_exemption", "none"))
     # A period RTF-1 is load-bearing only for an actual exemption claim (or
     # new construction).  A routine sale that fully recites consideration in
@@ -150,6 +166,7 @@ def sample_deed(rng: random.Random, *, pins: dict | None = None,
         "grantor": grantor, "grantee": grantee, "grantor_married": married,
         "grantor_sex": grantor_sex,
         "grantor_spouse": spouse,
+        "notary": notary,
         "grantor_address": "27 Fablewood Rise, Madison, New Jersey 07940",
         "grantee_address": "6 Quillstone Court, Madison, New Jersey 07940",
         "consideration": consideration, "rtf": actual_rtf,
@@ -299,21 +316,30 @@ def _render_vector(m: dict, defect: dict | None) -> tuple[bytes, list[list[str]]
     acknowledgers = m["grantor"]
     if m["grantor_spouse"]:
         acknowledgers += f" and {m['grantor_spouse']}"
+    if m["grantor_spouse"]:
+        acknowledgment = (
+            "that they are the persons named in and personally signed this Deed; "
+            "that they signed, sealed and delivered it as their act and deed"
+        )
+    else:
+        acknowledgment = (
+            "that the Grantor is the person named in and personally signed this "
+            "Deed; that the Grantor signed, sealed and delivered it as the "
+            "Grantor's act and deed"
+        )
     ack = (f"STATE OF NEW JERSEY, COUNTY OF MORRIS, ss. I CERTIFY that on "
            f"{m['execution_date']:%B %d, %Y}, {acknowledgers} personally came "
-           "before me and acknowledged, to my satisfaction, that they are the "
-           "persons named in and personally signed this Deed; that they signed, "
-           "sealed and delivered it as their act and deed for the uses and "
-           "purposes expressed in it; and that "
+           f"before me and acknowledged, to my satisfaction, {acknowledgment} "
+           "for the uses and purposes expressed in it; and that "
            f"{_money(m['consideration'])} is the full and actual consideration.")
     y = _wrap(c, ack, 48, y, 516, leading=14)
     lines.extend(["I CERTIFY", ack])
-    _signature(c, "Avery North", 48, y-62, m["scan_seed"] + 307,
+    _signature(c, m["notary"], 48, y-62, m["scan_seed"] + 307,
                draw_label=False)
     c.setFont("Times-Roman", 8)
-    c.drawString(48, y-86, "Avery North, Notary Public of New Jersey")
+    c.drawString(48, y-86, f"{m['notary']}, Notary Public of New Jersey")
     c.drawString(48, y-97, "My Commission Expires October 18, 1999")
-    lines.extend(["Avery North, Notary Public of New Jersey",
+    lines.extend([f"{m['notary']}, Notary Public of New Jersey",
                   "My Commission Expires October 18, 1999"])
     c.setFont("Helvetica-Bold", 13); c.saveState(); c.translate(370, 190); c.rotate(8)
     c.drawString(0, 0, f"RECORDED {m['recorded_date']:%b %d %Y}")
@@ -431,17 +457,17 @@ def _render_vector(m: dict, defect: dict | None) -> tuple[bytes, list[list[str]]
     lines.append(affirmation)
     c.setFont("Times-Roman", 7)
     c.drawString(48, 252, f"Subscribed and sworn to before me this {m['execution_date']:%d} day of {m['execution_date']:%B}, 1997")
-    _signature(c, "Avery North", 48, 202, m["scan_seed"] + 509,
+    _signature(c, m["notary"], 48, 202, m["scan_seed"] + 509,
                width=115, height=32, draw_label=False)
     c.setFont("Times-Roman", 6.5)
-    c.drawString(48, 190, "Avery North, Notary Public of New Jersey")
+    c.drawString(48, 190, f"{m['notary']}, Notary Public of New Jersey")
     c.drawString(48, 181, "My Commission Expires October 18, 1999")
     _signature(c, m["grantor"], 340, 202, m["scan_seed"] + 401,
                width=120, height=34, draw_label=False)
     c.setFont("Times-Roman", 6.5)
     c.drawString(340, 190, m["grantor"])
     c.drawString(340, 181, m["grantor_address"])
-    lines.extend(["Subscribed and sworn to before me", "Avery North, Notary Public of New Jersey",
+    lines.extend(["Subscribed and sworn to before me", f"{m['notary']}, Notary Public of New Jersey",
                   "My Commission Expires October 18, 1999", m["grantor"],
                   m["grantor_address"]])
 
@@ -470,3 +496,36 @@ def render_deed(m: dict, *, metadata: dict, defect: dict | None = None) -> bytes
             text.textLine(line)
     return scan.rescan(vector, rng=random.Random(m["scan_seed"]), metadata=metadata,
                        text_layer=ocr, dpi=150)
+
+
+def public_display_facts(m: dict, *, defect: dict | None = None) -> dict:
+    """Return the displayed fields safe for downstream accessible renditions."""
+    return {
+        "instrument_type": "Bargain and Sale Deed",
+        "county": m["county"],
+        "municipality": m["municipality"],
+        "state": m["state"],
+        "street": m["street"],
+        "zip": m["zip"],
+        "block": m["block"],
+        "lot": m["lot"],
+        "execution_date": m["execution_date"].isoformat(),
+        "consideration": m["consideration"],
+        "grantor_name": m["grantor"],
+        "grantor_address": m["grantor_address"],
+        "grantee_name": m["grantee"],
+        "grantee_address": m["grantee_address"],
+        "grantor_spouse_name": m["grantor_spouse"],
+        "signatory_names": [
+            name for name in (m["grantor"], m["grantor_spouse"]) if name
+        ],
+        "acknowledgment_names": [
+            name for name in (m["grantor"], m["grantor_spouse"]) if name
+        ],
+        "grantor_married": m["grantor_married"],
+        "new_construction": m["new_construction"],
+        "partial_exemption": m["partial_exemption"],
+        "prior_book": m["prior_book"],
+        "prior_page": m["prior_page"],
+        "notary_name": m["notary"],
+    }

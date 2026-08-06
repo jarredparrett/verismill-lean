@@ -127,9 +127,12 @@ verismill judge "$EXP" --mode absolute \
   --judge-run sha256:<receipt-3>
 ```
 
-Provider adapters can call `Experiment.run_absolute_blind_measurement()` after
-development selection to invoke, persist, and score the complete model panel in
-one operation.
+After development selection, record `Experiment.record_human_review()` for the
+exact Candidate. Provider adapters can then call
+`Experiment.run_absolute_blind_measurement()` to invoke, persist, and score the
+complete model panel in one operation. `PanelExecutionPolicy` bounds concurrent
+workers, retries, calls, and tokens; incomplete panels retain receipts but
+produce no standing.
 
 Downstream products materialize an emitted candidate through the public
 experiment facade rather than reading the experiment's object store:
@@ -155,6 +158,45 @@ verismill verify "$EXP"              # verify object hashes and bus chain
 verismill report "$EXP" --out report.md
 verismill rerun "$EXP" /tmp/eval-rerun --from evaluation
 ```
+
+### Multi-artifact products
+
+An `ArtifactSuite` composes several exact Experiments without turning a packet
+into one monolithic climb:
+
+```python
+from verismill import ArtifactSuite
+
+suite = ArtifactSuite.create(
+    "/path/to/user-data/observatory-artifacts",
+    suite_id="observatory_artifacts",
+    request="The independently measured observatory evidence collection",
+)
+
+# Create a child Experiment inside the suite workspace, or snapshot an existing
+# verified Experiment through the public boundary.
+night_log = suite.create_experiment(
+    "night_log", request="Forge the observatory night log"
+)
+# ...freeze, build, approve, and measure night_log through Experiment...
+suite.select_member("night_log")
+suite.link_experiment("gatehouse_card", measured_gatehouse_experiment)
+
+suite_attestation = suite.attest()
+assert suite.verify()["ok"]
+artifacts = suite.artifact_results()
+```
+
+Every member retains its own rubric, model receipts, Candidate, bus, Artifact
+Attestation, and standing. The suite stores relative child bundles, replays all
+member buses, and fails verification if a selected child changes. Its
+qualification reports accepted, rejected, required, and development-only
+member counts; it never averages scores from unlike rubrics. Attestation makes
+the selected collection immutable. `suite.revise(..., impacts={...})` creates a
+child suite: unchanged members retain exact content-hash attestations, while
+impacted members restart before Candidate generation and must be approved and
+measured again. See
+[docs/artifact-suite.md](docs/artifact-suite.md) for the complete contract.
 
 ### 3. Add a document class
 

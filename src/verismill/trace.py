@@ -14,13 +14,17 @@ ROLES = frozenset({
     "orchestrator", "spec_author", "builder", "judge", "auditor",
     "researcher", "fixer",
     "development_judge", "blind_judge",
+    "user",
 })
 EVENT_TYPES = frozenset({
     # Experiment lifecycle. Scores and acceptance are verdict payloads on an
     # evaluation event, never a second competing event/state machine.
     "experiment", "transition", "research", "rubric", "candidate",
     "agent_run", "development", "tell", "repair_asserted", "repair_resolved",
-    "evaluation", "report", "rerun",
+    "evaluation", "report", "rerun", "suite", "suite_member",
+    "suite_attestation",
+    "panel_execution",
+    "human_review",
 })
 
 _ENVELOPE_KEYS = {

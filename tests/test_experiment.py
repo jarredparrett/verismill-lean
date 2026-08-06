@@ -25,11 +25,19 @@ def research():
 
 
 def rubric():
+    from verismill.climb.judges import DIMENSIONS
+
     return {
         "version": "1.0",
         "scorer": "absolute-v0.2",
-        "dimensions": [{"id": "layout", "description": "Matches the form",
-                        "anchors": {"0": "wrong form", "100": "source-faithful"}}],
+        "dimensions": [
+            {
+                "id": dimension,
+                "description": f"Legacy absolute review: {dimension}",
+                "anchors": {"0": "unacceptable", "100": "source-faithful"},
+            }
+            for dimension in DIMENSIONS
+        ],
         "acceptance": {"rules": [
             {"metric": "overall_min", "operator": ">=", "value": 80},
         ]},
@@ -136,6 +144,74 @@ def test_schema_and_state_machine_are_explicit(tmp_path):
     with pytest.raises(ValueError, match="not produced"):
         exp.freeze_preparation(research=research(), rubric=incompatible,
                                requirements=requirements())
+
+
+def test_new_domain_rubric_defaults_to_v03_and_legacy_mismatch_is_rejected(tmp_path):
+    """experiment.rubric-default: new rubrics cannot silently use legal v0.2."""
+    domain_rubric = {
+        "version": "archival.1",
+        "dimensions": [{
+            "id": "capture",
+            "description": "The page behaves like a captured physical record.",
+            "anchors": {"0": "flat synthetic page", "100": "source-calibrated"},
+        }],
+        "acceptance": {"rules": [
+            {"metric": "overall_min", "operator": ">=", "value": 80},
+        ]},
+    }
+    exp = Experiment.create(
+        tmp_path / "default", request="Forge an archival log",
+        experiment_id="archival_default", clock=lambda: 1_700_000_000,
+    )
+    exp.freeze_preparation(
+        research=research(), rubric=domain_rubric, requirements=requirements(),
+    )
+    assert "scorer" not in domain_rubric
+    assert exp.store.read_json(exp.state["refs"]["rubric"])["scorer"] == "absolute-v0.3"
+
+    legacy = {**domain_rubric, "scorer": "absolute-v0.2"}
+    rejected = Experiment.create(
+        tmp_path / "legacy", request="Forge an archival log",
+        experiment_id="archival_legacy", clock=lambda: 1_700_000_000,
+    )
+    with pytest.raises(ValueError, match="fixed legacy instrument"):
+        rejected.freeze_preparation(
+            research=research(), rubric=legacy, requirements=requirements(),
+        )
+
+
+def test_historical_mismatched_v02_experiment_still_replays(monkeypatch, tmp_path):
+    """experiment.rubric-history: the new freeze guard does not rewrite history."""
+    import verismill.experiment as experiment_module
+
+    historical_rubric = {
+        "version": "historical.1",
+        "scorer": "absolute-v0.2",
+        "dimensions": [{
+            "id": "capture",
+            "description": "A domain dimension v0.2 historically ignored.",
+            "anchors": {"0": "flat", "100": "source-calibrated"},
+        }],
+        "acceptance": {"rules": [
+            {"metric": "overall_min", "operator": ">=", "value": 80},
+        ]},
+    }
+    monkeypatch.setattr(experiment_module, "validate_rubric", lambda value: None)
+    exp = prepared(tmp_path, historical_rubric)
+    cand, _ = candidate(exp)
+    dev = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[dev], decision="select",
+        score={"capture": 80}, findings=[],
+    )
+    blind = [exp.record_agent_run(run("blind_judge", i)) for i in (1, 2, 3)]
+    exp.record_absolute_blind_evaluation(judge_runs=blind)
+    root = exp.root
+    monkeypatch.undo()
+
+    reopened = Experiment.open(root, clock=lambda: 1_700_000_000)
+    assert reopened.verify()["ok"]
+    assert reopened.replay() == exp.replay()
 
 
 def test_full_rejected_cycle_is_resumable_and_replayable(tmp_path):

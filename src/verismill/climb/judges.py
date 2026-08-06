@@ -19,6 +19,8 @@ import re
 import shutil
 from pathlib import Path
 
+from ..schema import ABSOLUTE_V02_DIMENSIONS
+
 COVER_STORY = (
     "You are reviewing two samples, left/ and right/. Exactly one is genuine; "
     "the other was synthesized. Investigate both — read them closely, compare "
@@ -122,10 +124,7 @@ def assemble_trial(trial_root: Path, *, real_src: Path, synth_src: Path | None,
 # aggregation, so the min+veto rule cannot be averaged away by a judge.
 # ===========================================================================
 
-DIMENSIONS = ("drafting_realism", "procedural_correctness",
-              "cross_field_consistency", "financial_operational",
-              "external_verifiability", "visual_formatting",
-              "forensic_authenticity")
+DIMENSIONS = ABSOLUTE_V02_DIMENSIONS
 
 # FM1 — binary fatals a human treats as disqualifying; a NO caps the score.
 DISQUALIFIERS = {

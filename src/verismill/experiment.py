@@ -20,8 +20,9 @@ from typing import Any, Callable
 
 from . import trace
 from .agents import AgentTask, scoped_view
-from .schema import (SCHEMA_VERSION, AgentRun, ModelConfig, Phase, transition_allowed,
-                     validate_research, validate_requirements, validate_rubric)
+from .schema import (SCHEMA_VERSION, AgentRun, ModelConfig, Phase,
+                     normalize_rubric, transition_allowed, validate_research,
+                     validate_requirements, validate_rubric)
 from .store import ObjectStore, canonical_json, digest_bytes, refs_in
 
 
@@ -186,6 +187,7 @@ class Experiment:
             self.begin_preparation()
         if self.phase != Phase.PREPARING:
             raise ValueError(f"cannot freeze preparation while {self.phase.value}")
+        rubric = normalize_rubric(rubric)
         validate_research(research)
         validate_rubric(rubric)
         validate_requirements(requirements)

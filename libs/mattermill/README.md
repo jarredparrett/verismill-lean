@@ -7,7 +7,8 @@ mattermill renders *document classes* — the things a person asks for by name:
 an ACORD 126 or 130, a 1642 bill of sale engrossed on a membrane, a 1987
 marital settlement typed on pleading paper, a coordinated Massachusetts
 estate file, a 1997 New Jersey deed, a
-multi-instrument diligence production, or an 1878 New Jersey birth return. It renders them
+multi-instrument diligence production, independently forgeable 1937
+private-observatory evidence objects, or an 1878 New Jersey birth return. It renders them
 **byte-identically for a given seed**, so a pipeline can regenerate, diff, and
 verify every byte.
 
@@ -65,7 +66,7 @@ metadata and are not copied into emitted manifests.
 
 ```python
 from mattermill import (acord, acord130, bill_of_sale, deed_nj, diligence,
-                        estate_ma, lease_nj, nj_birth, vintage)
+                        estate_ma, lease_nj, nj_birth, observatory, vintage)
 import random
 
 # ACORD 126 (2009/08, Commercial General Liability Section) — template-
@@ -139,6 +140,33 @@ estate = estate_ma.sample_estate(random.Random(85), canon=my_estate_canon,
 estate_pdf = estate_ma.render_estate(estate, metadata=...)
 bad = estate_ma.render_estate(estate, metadata=...,
                               defect={"assigned_shares": 900})
+
+# Independently forge the 1937 private-observatory objects. A shared canon
+# keeps facts coherent, but every call returns its own bytes, manifest, hash,
+# and Verismill measurement lineage. A game composes accepted results later.
+observatory_model = observatory.sample_packet(random.Random(19370117),
+                                               canon=my_observatory_canon)
+night_log = observatory.render_artifact(
+    observatory_model, artifact_id="night_observing_log", metadata=...)
+altered_correction = observatory.render_artifact(
+    observatory_model, artifact_id="clock_correction", metadata=...,
+    defect={"correction_sign": "reverse"})
+
+# Or use the registry so each artifact receives a class-specific manifest:
+night_log, night_log_manifest = registry.emit(
+    "observatory_night_log_1937", seed=19370117,
+    canon=my_observatory_canon)
+
+# Time-service dependencies are forgeable too. The fictional local L-2 card
+# carries a sourced solar/sidereal conversion and keeps the public library
+# entry at minute precision rather than inventing sub-second handwriting.
+gatehouse_card, gatehouse_manifest = registry.emit(
+    "observatory_gatehouse_time_card_1937", seed=19370117,
+    canon=my_observatory_canon)
+
+# This is only an optional review/print composition, never the canonical
+# measurement unit:
+review_binder = observatory.render_packet(observatory_model, metadata=...)
 ```
 
 Under them sit four shared primitives, and nothing else:
@@ -146,8 +174,8 @@ Under them sit four shared primitives, and nothing else:
 | Primitive | Owns |
 |---|---|
 | `legalpdf` | the page machinery, the content-hashed `/ID`, the xref rebuild |
-| `scan` | period-honest scan emulation + the invisible Paper-Capture OCR layer |
-| `assets` | seeded wet-ink signatures and received/filed stamps |
+| `scan` | period-honest scan emulation, opt-in archival-color capture, and the invisible Paper-Capture OCR layer |
+| `assets` | seeded wet-ink signatures, varied working hands, and received/filed stamps |
 | `lens` | reading a rendered PDF back — metadata, pages, bates stamps |
 
 ## The determinism contract
@@ -161,7 +189,8 @@ Under them sit four shared primitives, and nothing else:
   never called at render time.
 
 Canon-driven classes (`underwriting_file`, `msa_1987`, `nj_birth`, `acord130`,
-`lease_nj`, `deed_nj_1997`, `estate_packet_ma`) take a `canon=` world. The shipped default is
+`lease_nj`, `deed_nj_1997`, `estate_packet_ma`,
+`observatory_packet_1937`) take a `canon=` world. The shipped default is
 invented; supply your own and every place, party and production number in the
 document follows from it.
 
@@ -174,7 +203,7 @@ Minnesota's algebra under a different heading.
 
 ## Status
 
-0.16.0 — API is unstable before 1.0 and will move while the foundry's realism
+0.25.0 — API is unstable before 1.0 and will move while the foundry's realism
 climb drives new emitters. The library is
 developed inside [verismill](https://github.com/jarredparrett/verismill-lean)
 as its rendering platform; it has no verismill dependencies.

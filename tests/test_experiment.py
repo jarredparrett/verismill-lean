@@ -528,6 +528,79 @@ def test_heterogeneous_blind_panel_tasks_use_only_sealed_artifact(tmp_path):
     assert all("baseline omitted" not in task.instructions for task in tasks)
 
 
+def test_rubric_driven_absolute_panel_replays_exact_frozen_dimensions(tmp_path):
+    """absolute-v0.3 prompts, parses, scores, and replays the declared rubric."""
+    rubric_v3 = {
+        "version": "archival.1",
+        "scorer": "absolute-v0.3",
+        "dimensions": [
+            {"id": "capture", "description": "Captured-object fidelity",
+             "anchors": {"0": "flat", "100": "source-calibrated"}},
+            {"id": "working_hand", "description": "Working-hand fidelity",
+             "anchors": {"0": "font", "100": "credible hand"}},
+            {"id": "institutional_use", "description": "Ordinary record behavior",
+             "anchors": {"0": "prop", "100": "ordinary record"}},
+            {"id": "reproducibility", "description": "Stable evidence",
+             "anchors": {"0": "unstable", "100": "reproducible"}},
+        ],
+        "acceptance": {"rules": [
+            {"metric": "overall_min", "operator": ">=", "value": 80},
+            {"metric": "coverage_ok", "operator": "==", "value": True},
+        ]},
+    }
+    exp = prepared(tmp_path, rubric_v3)
+    cand, _ = candidate(exp)
+    development = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[development], decision="select",
+        score={"capture": 90},
+        findings=[{"observation": "ready for the frozen archival panel",
+                   "evidence": "full-scale rendered inspection",
+                   "requirement": "form.layout"}],
+    )
+    models = [ModelConfig(provider="test", model=f"rubric-{i}")
+              for i in (1, 2, 3)]
+    tasks = exp.absolute_judge_tasks(
+        class_name="archival_record", persona="records conservator", models=models
+    )
+    expected_dimensions = {
+        dimension["id"] for dimension in rubric_v3["dimensions"]
+    }
+    assert all(
+        set(task.response_schema["dimension_scores"]) == expected_dimensions
+        for task in tasks
+    )
+    assert all("disqualifiers" not in task.response_schema for task in tasks)
+    assert all("lead-paint" not in task.instructions for task in tasks)
+
+    judge_refs = []
+    for index, task in enumerate(tasks, 1):
+        parsed = {
+            "glance_impression": "credible working archive capture",
+            "authenticity": "genuine", "confidence": 0.82,
+            "dimension_scores": {
+                dimension: 91 for dimension in expected_dimensions
+            },
+            "tells": [],
+        }
+        judge_refs.append(exp.record_agent_run(AgentRun(
+            run_id=f"rubric-blind-{index}", agent_id=f"rubric-agent-{index}",
+            context_id=f"rubric-context-{index}", role="blind_judge",
+            model=task.model, prompt_hash=task.prompt_hash(),
+            input_hashes=task.input_hashes(), raw_response=json.dumps(parsed),
+            parsed_output=parsed,
+        )))
+    evaluation_ref = exp.record_absolute_blind_evaluation(
+        judge_runs=judge_refs
+    )
+    evaluation = exp.store.read_json(evaluation_ref)
+    assert evaluation["scorer"] == "absolute-v0.3"
+    assert evaluation["scores"]["overall_min"] == 91
+    assert evaluation["scores"]["coverage_ok"] is True
+    assert exp.phase == Phase.ACCEPTED
+    assert exp.verify()["ok"]
+
+
 def test_absolute_measurement_requires_three_judges_and_all_lenses(tmp_path):
     """experiments.integrated-blind-measurement: a selected candidate cannot
     complete measurement with a partial panel or partial lens assignment."""

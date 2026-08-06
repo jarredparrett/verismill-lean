@@ -580,22 +580,51 @@ class Experiment:
 
         candidate = self.store.read_json(self.state["refs"]["current_candidate"])
         artifact = self.store.read_bytes(candidate["artifact"])
-        lenses = judges.assign_lenses(len(models))
-        schema = {
-            "authenticity": "genuine | synthetic",
-            "confidence": "0..1",
-            "disqualifiers": {key: "pass | fail" for key in judges.DISQUALIFIERS},
-            "dimension_scores": {key: "0..100" for key in judges.DIMENSIONS},
-            "tells": [{"path": "artifact filename", "quote_or_region": "evidence",
-                       "rationale": "why it indicates synthesis"}],
-        }
+        rubric = self.store.read_json(self.state["refs"]["rubric"])
+        scorer = rubric["scorer"]
+        if scorer == "absolute-v0.2":
+            lenses = judges.assign_lenses(len(models))
+            schema = {
+                "authenticity": "genuine | synthetic",
+                "confidence": "0..1",
+                "disqualifiers": {
+                    key: "pass | fail" for key in judges.DISQUALIFIERS
+                },
+                "dimension_scores": {
+                    key: "0..100" for key in judges.DIMENSIONS
+                },
+                "tells": [{
+                    "path": "artifact filename", "quote_or_region": "evidence",
+                    "rationale": "why it indicates synthesis",
+                }],
+            }
+            briefs = [judges.build_absolute_brief(
+                class_name=class_name, persona=persona, lens=lens
+            ) for lens in lenses]
+        elif scorer == "absolute-v0.3":
+            lenses = judges.assign_rubric_lenses(rubric, len(models))
+            schema = {
+                "authenticity": "genuine | synthetic",
+                "confidence": "0..1",
+                "dimension_scores": {
+                    key: "0..100" for key in judges.rubric_dimension_ids(rubric)
+                },
+                "tells": [{
+                    "path": "artifact filename", "quote_or_region": "evidence",
+                    "rationale": "why it indicates synthesis",
+                }],
+            }
+            briefs = [judges.build_rubric_absolute_brief(
+                rubric=rubric, persona=persona, primary_dimensions=lens
+            ) for lens in lenses]
+        else:
+            raise ValueError(f"rubric scorer {scorer!r} is not an absolute scorer")
         return [
             AgentTask(role="blind_judge",
-                      instructions=judges.build_absolute_brief(
-                          class_name=class_name, persona=persona, lens=lens),
+                      instructions=brief,
                       inputs={"document.pdf": artifact}, response_schema=schema,
                       model=model)
-            for model, lens in zip(models, lenses, strict=True)
+            for model, brief in zip(models, briefs, strict=True)
         ]
 
     def run_absolute_blind_measurement(
@@ -616,9 +645,7 @@ class Experiment:
             class_name=class_name, persona=persona, models=models)
         judge_runs = [self.invoke_agent(backend, task)
                       for backend, task in zip(backends, tasks, strict=True)]
-        return self.record_absolute_blind_evaluation(
-            judge_runs=judge_runs,
-            assigned_lenses=judges.assign_lenses(len(judge_runs)))
+        return self.record_absolute_blind_evaluation(judge_runs=judge_runs)
 
     def _contaminated_identities(self) -> tuple[set[str], set[str]]:
         agents, contexts = set(), set()
@@ -734,7 +761,7 @@ class Experiment:
         return ref
 
     def record_absolute_blind_evaluation(self, *, judge_runs: list[str],
-                                         assigned_lenses: list[str] | None = None) -> str:
+                                         assigned_lenses: list[Any] | None = None) -> str:
         """Parse and score existing absolute-review judge receipts."""
         from .climb import judges
 
@@ -744,20 +771,46 @@ class Experiment:
                 f"{judges.MIN_BLIND_PANEL_SIZE} fresh judges")
         if assigned_lenses is not None and len(assigned_lenses) != len(judge_runs):
             raise ValueError("one lens is required for every blind judge run")
+        rubric = self.store.read_json(self.state["refs"]["rubric"])
+        scorer = rubric["scorer"]
         verdict_map = {}
         ordered = []
         for ref in judge_runs:
             run = self._run(ref, {"blind_judge"})
-            verdict = judges.parse_absolute_verdict(json.dumps(run.parsed_output))
+            if scorer == "absolute-v0.2":
+                verdict = judges.parse_absolute_verdict(
+                    json.dumps(run.parsed_output)
+                )
+            elif scorer == "absolute-v0.3":
+                verdict = judges.parse_rubric_absolute_verdict(
+                    json.dumps(run.parsed_output),
+                    judges.rubric_dimension_ids(rubric),
+                )
+            else:
+                raise ValueError(
+                    f"rubric scorer {scorer!r} is not an absolute scorer"
+                )
             verdict_map[run.run_id] = verdict
             ordered.append(verdict)
-        assigned_lenses = assigned_lenses or judges.assign_lenses(len(judge_runs))
-        if not judges.coverage_ok(assigned_lenses):
-            raise ValueError("absolute blind measurement must cover every judge lens")
-        scores = judges.score_absolute_batch(verdict_map, assigned_lenses)
+        if scorer == "absolute-v0.2":
+            assigned_lenses = assigned_lenses or judges.assign_lenses(len(judge_runs))
+            if not judges.coverage_ok(assigned_lenses):
+                raise ValueError("absolute blind measurement must cover every judge lens")
+            scores = judges.score_absolute_batch(verdict_map, assigned_lenses)
+        else:
+            assigned_lenses = assigned_lenses or judges.assign_rubric_lenses(
+                rubric, len(judge_runs)
+            )
+            if not judges.rubric_coverage_ok(rubric, assigned_lenses):
+                raise ValueError(
+                    "absolute blind measurement must cover every rubric dimension"
+                )
+            scores = judges.score_rubric_absolute_batch(
+                verdict_map, judges.rubric_dimension_ids(rubric), assigned_lenses
+            )
         return self._record_blind_evaluation(
             judge_runs=judge_runs, verdicts=ordered, scores=scores,
-            scorer="absolute-v0.2",
+            scorer=scorer,
             scorer_inputs={"assigned_lenses": assigned_lenses})
 
     def record_pairwise_blind_evaluation(self, *, keys: list[dict],
@@ -1014,6 +1067,27 @@ class Experiment:
             if len(lenses) != len(judge_runs):
                 raise ValueError("absolute scorer lens count does not match judge count")
             scores = judges.score_absolute_batch(verdict_map, lenses)
+        elif evaluation["scorer"] == "absolute-v0.3":
+            rubric = self.store.read_json(evaluation["rubric"])
+            dimension_ids = judges.rubric_dimension_ids(rubric)
+            verdict_map = {}
+            for ref in judge_runs:
+                run = self._run(ref, {"blind_judge"})
+                verdict = judges.parse_rubric_absolute_verdict(
+                    json.dumps(run.parsed_output), dimension_ids
+                )
+                verdict_map[run.run_id] = verdict
+                verdicts.append(verdict)
+            lenses = evaluation["scorer_inputs"]["assigned_lenses"]
+            if len(lenses) != len(judge_runs):
+                raise ValueError("absolute scorer lens count does not match judge count")
+            if not judges.rubric_coverage_ok(rubric, lenses):
+                raise ValueError(
+                    "absolute scorer lenses do not cover the frozen rubric"
+                )
+            scores = judges.score_rubric_absolute_batch(
+                verdict_map, dimension_ids, lenses
+            )
         elif evaluation["scorer"] == "pairwise-v1":
             keys = evaluation["scorer_inputs"]["keys"]
             if len(keys) != len(judge_runs):

@@ -8,10 +8,13 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
+import time
 
 import pytest
 
-from verismill import (AgentRun, AgentTask, Experiment, ModelConfig, Phase,
+from verismill import (AgentRun, AgentTask, Experiment, ModelConfig,
+                       PanelExecutionError, PanelExecutionPolicy, Phase,
                        class_catalog, derive_local_standings, experiments_root,
                        user_data_root)
 
@@ -105,6 +108,15 @@ def candidate(exp: Experiment, n: int = 1, *, model: str = "model-a",
                      "requirement": "form.layout", "change": "added the sourced footer",
                      "evidence": "source form-1 page 1"})
     return ref, builder
+
+
+def approve(exp: Experiment, candidate_ref: str) -> str:
+    return exp.record_human_review(
+        candidate=candidate_ref,
+        reviewer_id="human-reviewer",
+        decision="approve",
+        feedback=[],
+    )
 
 
 def emitted_candidate(exp: Experiment, monkeypatch, *,
@@ -263,7 +275,8 @@ def test_artifact_result_is_a_public_materialization_boundary(tmp_path, monkeypa
         "manifest_hash": exp.view("user")["current_candidate"]["manifest"],
         "emitter": {"class": "test_class", "mattermill": "test-version"},
         "rubric_hash": exp.state["refs"]["rubric"],
-        "requirements_hash": exp.state["refs"]["requirements"],
+            "requirements_hash": exp.state["refs"]["requirements"],
+            "human_approval": None,
         "measurement": {
             "status": "development_only", "evaluation": None, "standing": None,
         },
@@ -699,6 +712,120 @@ def test_absolute_measurement_requires_three_judges_and_all_lenses(tmp_path):
     assert exp.phase == Phase.JUDGED
 
 
+def test_new_absolute_rubric_cannot_weaken_release_gate(tmp_path):
+    """experiments.release-gate: new absolute instruments retain overall_min
+    >= 80 and complete lens coverage as release-standing requirements."""
+    weak = {
+        "version": "weak.1",
+        "dimensions": [{
+            "id": "capture", "description": "capture realism",
+            "anchors": {"0": "flat", "100": "credible"},
+        }],
+        "acceptance": {"rules": [
+            {"metric": "overall_min", "operator": ">=", "value": 70},
+        ]},
+    }
+    exp = Experiment.create(
+        tmp_path / "weak", request="Forge weak", experiment_id="weak_gate",
+        clock=lambda: 1_700_000_000)
+    with pytest.raises(ValueError, match="overall_min >= 80"):
+        exp.freeze_preparation(
+            research=research(), rubric=weak, requirements=requirements())
+
+
+def test_not_applicable_dimensions_are_explicit_and_not_scored(tmp_path):
+    """experiments.dimension-applicability: an inapplicable dimension needs a
+    reason and is excluded from prompts, lens coverage, and judge output."""
+    value = {
+        "version": "applicability.1",
+        "dimensions": [
+            {"id": "capture", "description": "capture realism",
+             "anchors": {"0": "flat", "100": "credible"}},
+            {"id": "handwriting", "description": "working hand",
+             "anchors": {"0": "font", "100": "natural"},
+             "applicability": "not_applicable",
+             "applicability_reason": "the source class is entirely typeset"},
+        ],
+        "acceptance": {"rules": [
+            {"metric": "overall_min", "operator": ">=", "value": 80},
+        ]},
+    }
+    exp = prepared(tmp_path, value)
+    cand, _ = candidate(exp)
+    dev = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[dev], decision="select", score={"capture": 85},
+        findings=[])
+    models = [ModelConfig(provider="test", model=f"app-{i}") for i in (1, 2, 3)]
+    tasks = exp.absolute_judge_tasks(
+        class_name="typed_record", persona="records expert", models=models)
+    assert all(set(task.response_schema["dimension_scores"]) == {"capture"}
+               for task in tasks)
+    assert all("handwriting" not in task.instructions for task in tasks)
+
+    missing_reason = json.loads(json.dumps(value))
+    del missing_reason["dimensions"][1]["applicability_reason"]
+    other = Experiment.create(
+        tmp_path / "missing", request="Forge typed", experiment_id="missing_reason",
+        clock=lambda: 1_700_000_000)
+    with pytest.raises(ValueError, match="applicability_reason"):
+        other.freeze_preparation(
+            research=research(), rubric=missing_reason, requirements=requirements())
+
+
+def test_per_dimension_requirement_is_replayed_as_acceptance_evidence(tmp_path):
+    """experiments.dimension-requirement: a rubric can impose an explicit
+    applicable-dimension threshold without repurposing an unrelated metric."""
+    value = {
+        "version": "per-dimension.1",
+        "dimensions": [{
+            "id": "capture", "description": "capture realism",
+            "anchors": {"0": "flat", "100": "credible"},
+        }],
+        "acceptance": {
+            "rules": [
+                {"metric": "overall_min", "operator": ">=", "value": 80},
+            ],
+            "dimension_requirements": [
+                {"dimension": "capture", "operator": ">=", "value": 90},
+            ],
+        },
+    }
+    exp = prepared(tmp_path, value)
+    cand, _ = candidate(exp)
+    dev = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[dev], decision="select", score={"capture": 85},
+        findings=[])
+    refs = []
+    for index in (1, 2, 3):
+        parsed = {
+            "glance_impression": "credible capture", "authenticity": "genuine",
+            "confidence": 0.8, "dimension_scores": {"capture": 85}, "tells": [],
+        }
+        task = exp.absolute_judge_tasks(
+            class_name="typed_record", persona="records expert",
+            models=[ModelConfig(provider="test", model=f"unused-{n}")
+                    for n in (1, 2, 3)])[index - 1]
+        refs.append(exp.record_agent_run(AgentRun(
+            run_id=f"dimension-{index}", agent_id=f"dimension-agent-{index}",
+            context_id=f"dimension-context-{index}", role="blind_judge",
+            model=task.model, prompt_hash=task.prompt_hash(),
+            input_hashes=task.input_hashes(), raw_response=json.dumps(parsed),
+            parsed_output=parsed)))
+    evaluation_ref = exp.record_absolute_blind_evaluation(judge_runs=refs)
+    evaluation = exp.store.read_json(evaluation_ref)
+    dimension_result = next(
+        result for result in evaluation["acceptance_results"]
+        if result["metric"] == "dimension_means.capture")
+    assert dimension_result == {
+        "metric": "dimension_means.capture", "operator": ">=", "value": 90,
+        "actual": 85, "passed": False,
+    }
+    assert evaluation["accepted"] is False
+    assert exp.verify()["ok"]
+
+
 def test_provider_backends_run_as_one_integrated_blind_measurement(tmp_path):
     """experiments.integrated-panel-runner: provider adapters can execute,
     persist, score, and transition the complete panel in one operation."""
@@ -710,6 +837,7 @@ def test_provider_backends_run_as_one_integrated_blind_measurement(tmp_path):
         findings=[{"observation": "candidate is ready for blind measurement",
                    "evidence": "rendered page inspection",
                    "requirement": "form.layout"}])
+    approve(exp, cand)
     models = [ModelConfig(provider="test", model=f"panel-{i}") for i in (1, 2, 3)]
 
     class Backend:
@@ -738,6 +866,198 @@ def test_provider_backends_run_as_one_integrated_blind_measurement(tmp_path):
     assert exp.store.read_json(evaluation)["scores"]["k"] == 3
     assert exp.phase == Phase.ACCEPTED
     assert exp.view("user")["measurement"]["status"] == "accepted"
+
+
+def test_human_direction_and_exact_candidate_approval_are_first_order(tmp_path):
+    """experiments.human-oversight: human direction returns a sealed candidate
+    to the climb and public blind execution requires exact-candidate approval."""
+    exp = prepared(tmp_path)
+    first, _ = candidate(exp)
+    dev = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=first, judge_runs=[dev], decision="select", score={"layout": 82},
+        findings=[])
+    assert exp.view("user")["development_standing"] == {
+        "status": "progress_only", "release_claim": False,
+        "round": exp.state["development_rounds"][-1], "candidate": first,
+        "decision": "select", "score": {"layout": 82},
+    }
+    models = [ModelConfig(provider="test", model=f"human-{i}") for i in (1, 2, 3)]
+    with pytest.raises(ValueError, match="human approval"):
+        exp.run_absolute_blind_measurement(
+            class_name="test_class", persona="domain expert", models=models,
+            backends=[object(), object(), object()])
+
+    direction_ref = exp.record_human_review(
+        candidate=first,
+        reviewer_id="reviewer-jp",
+        decision="request_changes",
+        feedback=[{
+            "observation": "the footer still reads as synthetic",
+            "evidence": "page 1 footer uses a modern label",
+            "requirement": "form.layout",
+            "direction": "match the sourced footer wording",
+        }],
+    )
+    assert exp.phase == Phase.CLIMBING
+    assert exp.store.read_json(direction_ref)["feedback"][0]["direction"].startswith(
+        "match")
+
+    second, _ = candidate(exp, 2)
+    dev2 = exp.record_agent_run(run("development_judge", 2))
+    exp.record_development_round(
+        candidate=second, judge_runs=[dev2], decision="select", score={"layout": 90},
+        findings=[])
+    approval_ref = approve(exp, second)
+    result = exp.artifact_result(second)
+    assert result["attestation"]["human_approval"] == approval_ref
+    assert exp.verify()["ok"]
+
+
+def test_blind_panel_runs_concurrently_but_persists_assigned_order(tmp_path):
+    """experiments.concurrent-panel: independent arms run with bounded
+    concurrency while receipts and the execution record remain task ordered."""
+    exp = prepared(tmp_path)
+    cand, _ = candidate(exp)
+    dev = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[dev], decision="select", score={"layout": 90},
+        findings=[])
+    approve(exp, cand)
+    models = [ModelConfig(provider="test", model=f"parallel-{i}") for i in (1, 2, 3)]
+    lock = threading.Lock()
+    active = 0
+    maximum = 0
+
+    class Backend:
+        def __init__(self, index):
+            self.index = index
+
+        def invoke(self, task):
+            nonlocal active, maximum
+            with lock:
+                active += 1
+                maximum = max(maximum, active)
+            time.sleep(0.03)
+            with lock:
+                active -= 1
+            parsed = absolute_output(91, "genuine")
+            return AgentRun(
+                run_id=f"parallel-run-{self.index}",
+                agent_id=f"parallel-agent-{self.index}",
+                context_id=f"parallel-context-{self.index}",
+                role=task.role, model=task.model,
+                prompt_hash=task.prompt_hash(), input_hashes=task.input_hashes(),
+                raw_response=json.dumps(parsed), parsed_output=parsed,
+                usage={"input_tokens": 8, "output_tokens": 2})
+
+    evaluation_ref = exp.run_absolute_blind_measurement(
+        class_name="test_class", persona="domain expert", models=models,
+        backends=[Backend(i) for i in (1, 2, 3)],
+        policy=PanelExecutionPolicy(max_workers=2, max_calls=3),
+    )
+    assert maximum == 2
+    evaluation = exp.store.read_json(evaluation_ref)
+    execution = exp.store.read_json(evaluation["scorer_inputs"]["panel_execution"])
+    assert [attempt["arm"] for attempt in execution["attempts"]] == [0, 1, 2]
+    assert execution["usage"] == {"total_tokens": 30}
+    assert execution["status"] == "complete"
+    assert exp.verify()["ok"]
+
+
+def test_blind_panel_retries_failures_with_call_bound(tmp_path):
+    """experiments.panel-retries: only failed arms retry and every attempt is
+    persisted under deterministic attempt and call limits."""
+    exp = prepared(tmp_path)
+    cand, _ = candidate(exp)
+    dev = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[dev], decision="select", score={"layout": 90},
+        findings=[])
+    approve(exp, cand)
+    models = [ModelConfig(provider="test", model=f"retry-{i}") for i in (1, 2, 3)]
+
+    class Backend:
+        def __init__(self, index):
+            self.index = index
+            self.calls = 0
+
+        def invoke(self, task):
+            self.calls += 1
+            if self.index == 2 and self.calls == 1:
+                raise TimeoutError("transient")
+            parsed = absolute_output(91, "genuine")
+            return AgentRun(
+                run_id=f"retry-run-{self.index}-{self.calls}",
+                agent_id=f"retry-agent-{self.index}",
+                context_id=f"retry-context-{self.index}",
+                role=task.role, model=task.model,
+                prompt_hash=task.prompt_hash(), input_hashes=task.input_hashes(),
+                raw_response=json.dumps(parsed), parsed_output=parsed)
+
+    backends = [Backend(i) for i in (1, 2, 3)]
+    evaluation_ref = exp.run_absolute_blind_measurement(
+        class_name="test_class", persona="domain expert", models=models,
+        backends=backends,
+        policy=PanelExecutionPolicy(max_attempts=2, max_workers=3, max_calls=4),
+    )
+    execution_ref = exp.store.read_json(evaluation_ref)["scorer_inputs"]["panel_execution"]
+    execution = exp.store.read_json(execution_ref)
+    assert [(item["attempt"], item["arm"], item["status"])
+            for item in execution["attempts"]] == [
+        (1, 0, "succeeded"), (1, 1, "failed"), (1, 2, "succeeded"),
+        (2, 1, "succeeded"),
+    ]
+    assert [backend.calls for backend in backends] == [1, 2, 1]
+    assert execution["calls"] == 4
+    assert exp.verify()["ok"]
+
+
+@pytest.mark.parametrize("mode", ["failed", "budget_exhausted"])
+def test_incomplete_panel_persists_receipts_without_producing_standing(tmp_path, mode):
+    """experiments.panel-stop: retry or token exhaustion records its evidence
+    but cannot create an evaluation or accepted standing."""
+    exp = prepared(tmp_path)
+    cand, _ = candidate(exp)
+    dev = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[dev], decision="select", score={"layout": 90},
+        findings=[])
+    approve(exp, cand)
+    models = [ModelConfig(provider="test", model=f"bounded-{i}") for i in (1, 2, 3)]
+
+    class Backend:
+        def __init__(self, index):
+            self.index = index
+            self.calls = 0
+
+        def invoke(self, task):
+            self.calls += 1
+            if mode == "failed" and self.index == 1:
+                raise ConnectionError("unavailable")
+            parsed = absolute_output(91, "genuine")
+            return AgentRun(
+                run_id=f"bounded-{self.index}-{self.calls}",
+                agent_id=f"bounded-agent-{self.index}-{self.calls}",
+                context_id=f"bounded-context-{self.index}-{self.calls}",
+                role=task.role, model=task.model,
+                prompt_hash=task.prompt_hash(), input_hashes=task.input_hashes(),
+                raw_response=json.dumps(parsed), parsed_output=parsed,
+                usage={"total_tokens": 10})
+
+    policy = (PanelExecutionPolicy(max_attempts=2, max_calls=4)
+              if mode == "failed"
+              else PanelExecutionPolicy(max_total_tokens=20, max_calls=3))
+    with pytest.raises(PanelExecutionError) as caught:
+        exp.run_absolute_blind_measurement(
+            class_name="test_class", persona="domain expert", models=models,
+            backends=[Backend(i) for i in (1, 2, 3)], policy=policy)
+    execution = exp.store.read_json(caught.value.execution_ref)
+    assert execution["status"] == mode
+    assert exp.state["evaluations"] == []
+    assert exp.state["standing"] is None
+    assert exp.phase == Phase.AWAITING_BLIND_JUDGMENT
+    assert exp.verify()["ok"]
 
 
 def test_receipt_digests_are_not_mistaken_for_object_references(tmp_path):

@@ -64,12 +64,22 @@ domain rubric. Absolute scorers produce aggregate metrics such as
 `pairwise-v1` produces
 `synth_vs_real_accuracy`, `real_vs_real_pick_rate`, and `trials_scored`.
 Preparation rejects acceptance metrics the selected scorer cannot produce.
+Every new absolute rubric also freezes `overall_min >= 80` and
+`coverage_ok == true` as release gates. A dimension is applicable by default;
+use `{"applicability": "not_applicable", "applicability_reason": "..."}` to
+exclude it honestly. Optional `acceptance.dimension_requirements` entries bind
+their own operator and threshold to a named applicable dimension.
 
 Register a builder receipt, then either persist bytes directly with
 `record_candidate()` or render a mattermill class with `emit_candidate()`.
 Development rounds use `record_development_round()`. A `select` decision
 automatically seals the candidate and transitions to
-`awaiting_blind_judgment`; register at least three fresh `blind_judge` receipts
+`awaiting_blind_judgment`. Record first-order oversight with
+`record_human_review()`. A `request_changes` decision returns the exact
+Candidate to the climb; an `approve` decision is content-addressed into its
+Artifact Attestation. The public panel runner will not invoke a provider until
+the current Candidate has this approval. Register at least three fresh
+`blind_judge` receipts
 covering every lens and record the evaluation. `submit_for_blind_judgment()` is
 only the explicit boundary for imported candidates or evaluation-only flows
 that intentionally skip development selection.
@@ -91,6 +101,20 @@ Provider-backed callers can use `run_absolute_blind_measurement()` to perform
 the required panel as one continuation: it creates the isolated tasks, invokes
 each model/backend arm, persists receipts, scores the complete lens set, and
 transitions to `accepted` or `judged`.
+
+Pass a public `PanelExecutionPolicy` to bound `max_workers`, `max_attempts`,
+`max_calls`, and `max_total_tokens`. Provider calls overlap, but attempts and
+receipts persist in assigned-arm order. A failed or budget-exhausted execution
+records its partial receipts and usage, raises `PanelExecutionError`, and
+cannot produce an evaluation or standing. Development-round scores remain
+visible through `view("user")["development_standing"]` with
+`status="progress_only"` and `release_claim=false`; they are never represented
+as release standing.
+
+Products that select multiple independently measured artifacts use
+[`ArtifactSuite`](artifact-suite.md). The suite composes public Experiment
+results and buses; it does not create a packet-level score or weaken the
+one-Experiment-per-artifact boundary.
 
 ## State machine
 

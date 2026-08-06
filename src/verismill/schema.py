@@ -7,6 +7,7 @@ readable and verifiable long after a particular agent SDK has disappeared.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import copy
 from enum import StrEnum
 import re
 from typing import Any
@@ -54,7 +55,9 @@ TRANSITIONS: dict[Phase, frozenset[Phase]] = {
     Phase.PREPARING: frozenset({Phase.RUBRIC_FROZEN}),
     Phase.RUBRIC_FROZEN: frozenset({Phase.CLIMBING}),
     Phase.CLIMBING: frozenset({Phase.AWAITING_BLIND_JUDGMENT}),
-    Phase.AWAITING_BLIND_JUDGMENT: frozenset({Phase.JUDGED, Phase.ACCEPTED}),
+    Phase.AWAITING_BLIND_JUDGMENT: frozenset({
+        Phase.CLIMBING, Phase.JUDGED, Phase.ACCEPTED,
+    }),
     Phase.JUDGED: frozenset({Phase.CLIMBING, Phase.PREPARING}),
     Phase.ACCEPTED: frozenset({Phase.PREPARING}),
 }
@@ -84,7 +87,20 @@ def validate_research(value: dict) -> None:
 
 def normalize_rubric(value: dict) -> dict:
     """Copy a new rubric and select the domain-driven scorer by default."""
-    return {**value, "scorer": value.get("scorer", DEFAULT_SCORER)}
+    normalized = copy.deepcopy(value)
+    normalized["scorer"] = value.get("scorer", DEFAULT_SCORER)
+    for dimension in normalized.get("dimensions", []):
+        if isinstance(dimension, dict):
+            dimension.setdefault("applicability", "required")
+    if normalized["scorer"].startswith("absolute-"):
+        acceptance = normalized.get("acceptance")
+        if isinstance(acceptance, dict) and isinstance(acceptance.get("rules"), list):
+            if not any(rule.get("metric") == "coverage_ok"
+                       for rule in acceptance["rules"] if isinstance(rule, dict)):
+                acceptance["rules"].append(
+                    {"metric": "coverage_ok", "operator": "==", "value": True}
+                )
+    return normalized
 
 
 def validate_rubric(value: dict) -> None:
@@ -105,6 +121,23 @@ def validate_rubric(value: dict) -> None:
         seen.add(dimension["id"])
         if not isinstance(dimension["anchors"], dict) or not dimension["anchors"]:
             raise ValueError(f"rubric dimension {dimension['id']} needs score anchors")
+        applicability = dimension.get("applicability", "required")
+        if applicability not in {"required", "not_applicable"}:
+            raise ValueError(
+                f"rubric dimension {dimension['id']} applicability must be "
+                "required or not_applicable"
+            )
+        if applicability == "not_applicable" and not str(
+                dimension.get("applicability_reason", "")).strip():
+            raise ValueError(
+                f"rubric dimension {dimension['id']} needs an applicability_reason"
+            )
+    applicable = {
+        dimension["id"] for dimension in value["dimensions"]
+        if dimension.get("applicability", "required") == "required"
+    }
+    if not applicable:
+        raise ValueError("rubric requires at least one applicable dimension")
     if scorer == "absolute-v0.2":
         declared = tuple(dimension["id"] for dimension in value["dimensions"])
         if declared != ABSOLUTE_V02_DIMENSIONS:
@@ -113,6 +146,8 @@ def validate_rubric(value: dict) -> None:
                 f"must exactly match {ABSOLUTE_V02_DIMENSIONS!r}; use "
                 "absolute-v0.3 for a domain rubric"
             )
+        if applicable != set(ABSOLUTE_V02_DIMENSIONS):
+            raise ValueError("absolute-v0.2 dimensions cannot be not_applicable")
     acceptance = value["acceptance"]
     if not isinstance(acceptance, dict) or not isinstance(acceptance.get("rules"), list) \
             or not acceptance["rules"]:
@@ -124,6 +159,42 @@ def validate_rubric(value: dict) -> None:
                 f"metric {rule['metric']!r} is not produced by {scorer}")
         if rule["operator"] not in {">=", ">", "<=", "<", "=="}:
             raise ValueError(f"unsupported acceptance operator: {rule['operator']!r}")
+    if scorer.startswith("absolute-"):
+        strict_overall = any(
+            rule["metric"] == "overall_min" and rule["operator"] in {">=", ">"}
+            and isinstance(rule["value"], (int, float)) and rule["value"] >= 80
+            for rule in acceptance["rules"]
+        )
+        strict_coverage = any(
+            rule["metric"] == "coverage_ok" and rule["operator"] == "=="
+            and rule["value"] is True
+            for rule in acceptance["rules"]
+        )
+        if not strict_overall:
+            raise ValueError("absolute release standing requires overall_min >= 80")
+        if not strict_coverage:
+            raise ValueError("absolute release standing requires coverage_ok == true")
+    dimension_requirements = acceptance.get("dimension_requirements", [])
+    if not isinstance(dimension_requirements, list):
+        raise ValueError("acceptance.dimension_requirements must be a list")
+    required_dimensions: set[str] = set()
+    for i, requirement in enumerate(dimension_requirements):
+        if not isinstance(requirement, dict):
+            raise ValueError(f"dimension requirement {i} must be an object")
+        require_keys(requirement, {"dimension", "operator", "value"},
+                     f"dimension requirement {i}")
+        dimension_id = requirement["dimension"]
+        if dimension_id not in applicable:
+            raise ValueError(
+                f"dimension requirement names non-applicable dimension {dimension_id!r}"
+            )
+        if dimension_id in required_dimensions:
+            raise ValueError(f"duplicate dimension requirement: {dimension_id}")
+        required_dimensions.add(dimension_id)
+        if requirement["operator"] not in {">=", ">", "<=", "<", "=="}:
+            raise ValueError(
+                f"unsupported dimension operator: {requirement['operator']!r}"
+            )
 
 
 def validate_requirements(value: list[dict]) -> None:

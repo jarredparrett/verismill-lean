@@ -14,6 +14,16 @@ from typing import Any
 
 SCHEMA_VERSION = "1.0"
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
+DEFAULT_SCORER = "absolute-v0.3"
+ABSOLUTE_V02_DIMENSIONS = (
+    "drafting_realism",
+    "procedural_correctness",
+    "cross_field_consistency",
+    "financial_operational",
+    "external_verifiability",
+    "visual_formatting",
+    "forensic_authenticity",
+)
 SCORER_METRICS = {
     "absolute-v0.2": frozenset({
         "k", "overall_min", "overall_mean", "coherence_profile",
@@ -72,10 +82,16 @@ def validate_research(value: dict) -> None:
         require_keys(source, {"id", "kind", "provenance"}, f"research source {i}")
 
 
+def normalize_rubric(value: dict) -> dict:
+    """Copy a new rubric and select the domain-driven scorer by default."""
+    return {**value, "scorer": value.get("scorer", DEFAULT_SCORER)}
+
+
 def validate_rubric(value: dict) -> None:
-    require_keys(value, {"version", "scorer", "dimensions", "acceptance"}, "rubric")
-    if value["scorer"] not in SCORER_METRICS:
-        raise ValueError(f"unsupported rubric scorer: {value['scorer']!r}")
+    require_keys(value, {"version", "dimensions", "acceptance"}, "rubric")
+    scorer = value.get("scorer", DEFAULT_SCORER)
+    if scorer not in SCORER_METRICS:
+        raise ValueError(f"unsupported rubric scorer: {scorer!r}")
     if not isinstance(value["dimensions"], list) or not value["dimensions"]:
         raise ValueError("rubric dimensions must be a non-empty list")
     seen: set[str] = set()
@@ -89,15 +105,23 @@ def validate_rubric(value: dict) -> None:
         seen.add(dimension["id"])
         if not isinstance(dimension["anchors"], dict) or not dimension["anchors"]:
             raise ValueError(f"rubric dimension {dimension['id']} needs score anchors")
+    if scorer == "absolute-v0.2":
+        declared = tuple(dimension["id"] for dimension in value["dimensions"])
+        if declared != ABSOLUTE_V02_DIMENSIONS:
+            raise ValueError(
+                "absolute-v0.2 is a fixed legacy instrument; rubric dimensions "
+                f"must exactly match {ABSOLUTE_V02_DIMENSIONS!r}; use "
+                "absolute-v0.3 for a domain rubric"
+            )
     acceptance = value["acceptance"]
     if not isinstance(acceptance, dict) or not isinstance(acceptance.get("rules"), list) \
             or not acceptance["rules"]:
         raise ValueError("rubric acceptance.rules must be a non-empty list")
     for i, rule in enumerate(acceptance["rules"]):
         require_keys(rule, {"metric", "operator", "value"}, f"acceptance rule {i}")
-        if rule["metric"] not in SCORER_METRICS[value["scorer"]]:
+        if rule["metric"] not in SCORER_METRICS[scorer]:
             raise ValueError(
-                f"metric {rule['metric']!r} is not produced by {value['scorer']}")
+                f"metric {rule['metric']!r} is not produced by {scorer}")
         if rule["operator"] not in {">=", ">", "<=", "<", "=="}:
             raise ValueError(f"unsupported acceptance operator: {rule['operator']!r}")
 

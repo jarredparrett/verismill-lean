@@ -37,7 +37,6 @@ exp.freeze_preparation(
     },
     rubric={
         "version": "1.0",
-        "scorer": "absolute-v0.2",
         "dimensions": [{
             "id": "procedural_correctness",
             "description": "The lease follows the governing procedure.",
@@ -55,9 +54,14 @@ exp.freeze_preparation(
 )
 ```
 
-The rubric's `scorer` is part of the frozen instrument. `absolute-v0.2`
-produces aggregate metrics such as `overall_min`, `overall_mean`,
-`discrimination_accuracy`, and `coverage_ok`; `pairwise-v1` produces
+The rubric's `scorer` is part of the frozen instrument. New rubrics default to
+rubric-driven `absolute-v0.3`, which prompts and scores exactly the declared
+dimensions. `absolute-v0.2` is replay-compatible legacy behavior and can be
+selected for a new experiment only when all seven fixed legal-instrument
+dimensions are declared in their canonical order. It must not be used for a
+domain rubric. Absolute scorers produce aggregate metrics such as
+`overall_min`, `overall_mean`, `discrimination_accuracy`, and `coverage_ok`;
+`pairwise-v1` produces
 `synth_vs_real_accuracy`, `real_vs_real_pick_rate`, and `trials_scored`.
 Preparation rejects acceptance metrics the selected scorer cannot produce.
 

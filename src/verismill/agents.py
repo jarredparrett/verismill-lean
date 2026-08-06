@@ -50,13 +50,53 @@ class AgentBackend(Protocol):
     def invoke(self, task: AgentTask) -> AgentRun: ...
 
 
+@dataclass(frozen=True)
+class PanelExecutionPolicy:
+    """Bounded provider-call policy for one blind panel.
+
+    Calls may finish in any wall-clock order.  Verismill always persists arms
+    and attempts in their assigned task order so scheduling cannot change the
+    experiment record.
+    """
+
+    max_attempts: int = 1
+    max_workers: int | None = None
+    max_calls: int | None = None
+    max_total_tokens: int | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("max_attempts", "max_workers", "max_calls", "max_total_tokens"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, int) or isinstance(value, bool)
+                                      or value < 1):
+                raise ValueError(f"{name} must be a positive integer")
+
+    def to_dict(self) -> dict[str, int | None]:
+        return {
+            "max_attempts": self.max_attempts,
+            "max_workers": self.max_workers,
+            "max_calls": self.max_calls,
+            "max_total_tokens": self.max_total_tokens,
+        }
+
+
+class PanelExecutionError(RuntimeError):
+    """A bounded panel stopped without producing a score."""
+
+    def __init__(self, message: str, *, execution_ref: str):
+        super().__init__(message)
+        self.execution_ref = execution_ref
+
+
 ROLE_VISIBLE_FIELDS: dict[str, frozenset[str]] = {
     "researcher": frozenset({"id", "revision", "request", "phase", "research",
                              "references"}),
     "builder": frozenset({"id", "revision", "request", "phase", "rubric",
-                          "requirements", "current_candidate", "development"}),
+                          "requirements", "current_candidate", "development",
+                          "development_standing", "human_reviews"}),
     "fixer": frozenset({"id", "revision", "request", "phase", "rubric",
-                        "requirements", "current_candidate", "development"}),
+                        "requirements", "current_candidate", "development",
+                        "development_standing", "human_reviews"}),
     "development_judge": frozenset({"id", "revision", "request", "phase", "rubric",
                                     "current_candidate"}),
     "blind_judge": frozenset({"phase", "rubric", "current_candidate",
@@ -65,7 +105,7 @@ ROLE_VISIBLE_FIELDS: dict[str, frozenset[str]] = {
     "user": frozenset({"id", "revision", "request", "phase", "research_summary",
                        "rubric", "requirements", "current_candidate", "candidates", "development",
                        "evaluations", "atlas_summary", "standing", "measurement",
-                       "next_actions"}),
+                       "development_standing", "human_reviews", "next_actions"}),
 }
 
 

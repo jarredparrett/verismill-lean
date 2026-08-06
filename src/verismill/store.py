@@ -14,13 +14,18 @@ _REF_KEYS = frozenset({
     "artifact", "manifest", "builder_run", "rubric", "requirements",
     "evaluation", "source", "provenance", "contract", "atlas",
     "research", "reference", "round", "report", "current_candidate",
-    "parent_state", "state",
+    "parent_state", "state", "attestation", "member_attestation",
+    "panel_execution",
+    "parent_attestation",
+    "human_review", "human_approval",
 })
 _REF_LIST_KEYS = frozenset({
     "agent_runs", "inherited_agent_runs", "references", "candidates", "development_rounds",
     "evaluations", "reports", "judge_runs", "prior_revisions",
+    "panel_executions",
+    "human_reviews",
 })
-_REF_MAP_KEYS = frozenset({"refs", "output_refs"})
+_REF_MAP_KEYS = frozenset({"refs", "output_refs", "carried_forward"})
 _DIGEST_KEYS = frozenset({
     "sha256", "prompt_hash", "input_hashes", "event_id", "event_hash",
     "prev_hash",

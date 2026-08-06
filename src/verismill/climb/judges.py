@@ -298,7 +298,10 @@ def score_absolute_batch(verdicts: dict[str, dict],
 
 def rubric_dimension_ids(rubric: dict) -> tuple[str, ...]:
     """Return the frozen rubric's ordered dimension identifiers."""
-    return tuple(dimension["id"] for dimension in rubric["dimensions"])
+    return tuple(
+        dimension["id"] for dimension in rubric["dimensions"]
+        if dimension.get("applicability", "required") == "required"
+    )
 
 
 def assign_rubric_lenses(rubric: dict, k: int) -> list[list[str]]:
@@ -336,6 +339,8 @@ def build_rubric_absolute_brief(*, rubric: dict, persona: str,
     """Build a two-pass blind brief from the frozen rubric itself."""
     dimensions = []
     for dimension in rubric["dimensions"]:
+        if dimension.get("applicability", "required") != "required":
+            continue
         anchors = json.dumps(dimension["anchors"], sort_keys=True)
         dimensions.append(
             f"- {dimension['id']}: {dimension['description']} Anchors: {anchors}"

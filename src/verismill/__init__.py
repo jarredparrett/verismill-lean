@@ -8,13 +8,15 @@ The low-level atlas, judge harness, source tooling, and trace bus remain
 available.  :class:`Experiment` is the public lifecycle and persistence facade.
 """
 
-from .agents import AgentBackend, AgentTask
+from .agents import (AgentBackend, AgentTask, PanelExecutionError,
+                     PanelExecutionPolicy)
 from .experiment import Experiment
 from .catalog import class_catalog, derive_local_standings, experiments_root, user_data_root
 from .schema import AgentRun, ModelConfig, Phase
+from .suite import ArtifactSuite
 
-__all__ = ["AgentBackend", "AgentRun", "AgentTask", "Experiment", "ModelConfig",
-           "Phase", "class_catalog", "derive_local_standings", "experiments_root",
-           "user_data_root"]
+__all__ = ["AgentBackend", "AgentRun", "AgentTask", "ArtifactSuite", "Experiment",
+           "ModelConfig", "PanelExecutionError", "PanelExecutionPolicy", "Phase",
+           "class_catalog", "derive_local_standings", "experiments_root", "user_data_root"]
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"

@@ -42,7 +42,9 @@ class ArtifactSuite:
             raise FileNotFoundError(f"not a verismill artifact suite: {self.root}")
         self.store = ObjectStore(self.root / "objects")
         self.bus = trace.TraceBus(self.root / "bus.jsonl", clock=clock)
-        self.state = json.loads(self.state_path.read_text())
+        state_bytes = self.state_path.read_bytes()
+        self.state = json.loads(state_bytes)
+        self._state_hash = digest_bytes(state_bytes)
         self._validate_state()
 
     @classmethod
@@ -111,10 +113,17 @@ class ArtifactSuite:
             raise ValueError("suite members must be a mapping")
 
     def _save(self) -> None:
+        current_hash = digest_bytes(self.state_path.read_bytes())
+        if current_hash != self._state_hash:
+            raise RuntimeError(
+                "stale ArtifactSuite handle: persisted state advanced in another handle"
+            )
         self.state["updated_at"] = _utc(self.clock)
+        state_bytes = canonical_json(self.state)
         temporary = self.state_path.with_suffix(".json.tmp")
-        temporary.write_bytes(canonical_json(self.state))
+        temporary.write_bytes(state_bytes)
         temporary.replace(self.state_path)
+        self._state_hash = digest_bytes(state_bytes)
 
     def _require_assembling(self) -> None:
         if self.phase != "assembling":

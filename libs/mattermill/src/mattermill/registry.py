@@ -86,6 +86,7 @@ class DocumentClass:
     takes_pins: bool = False
     takes_canon: bool = False
     public_facts: Callable[[dict], dict] | None = None
+    metadata_created: Callable[[dict], str] | None = None
 
     def describe(self) -> dict:
         return {"name": self.name, "summary": self.summary,
@@ -244,8 +245,10 @@ register(DocumentClass(
           "rent_controlled": "bool", "term_start": "ISO date",
           "pets": "bool", "seniors": "bool"},
     sample=lease_nj.sample_lease, render=lease_nj.render_lease,
-    profiles=OFFICE, capture_window=(2024, 2026),
+    profiles=[("Adobe PDF Library 15.0", lease_nj.ESIGN_PLATFORM)],
+    capture_window=(2024, 2026),
     takes_pins=True, takes_canon=True,
+    metadata_created=lease_nj.export_created,
 ))
 
 register(DocumentClass(
@@ -293,7 +296,8 @@ def list_classes() -> list[dict]:
     return [CLASSES[n].describe() for n in sorted(CLASSES)]
 
 
-def _metadata(cls: DocumentClass, rng: random.Random) -> dict:
+def _metadata(cls: DocumentClass, rng: random.Random,
+              model: dict | None = None) -> dict:
     """Era-correct capture metadata, drawn from the caller's seed.
 
     `created` is when the artifact came into existence as a FILE — the
@@ -303,11 +307,14 @@ def _metadata(cls: DocumentClass, rng: random.Random) -> dict:
     producer, creator = rng.choice(cls.profiles)
     lo, hi = cls.capture_window
     year = rng.randint(lo, hi)
+    created = (cls.metadata_created(model)
+               if cls.metadata_created is not None and model is not None
+               else (f"{year}-{rng.randint(1, 12):02d}-"
+                     f"{rng.randint(1, 28):02d} "
+                     f"{rng.randint(8, 18):02d}:{rng.randint(0, 59):02d}:"
+                     f"{rng.randint(0, 59):02d}"))
     return {"producer": producer, "creator": creator,
-            "created": (f"{year}-{rng.randint(1, 12):02d}-"
-                        f"{rng.randint(1, 28):02d} "
-                        f"{rng.randint(8, 18):02d}:{rng.randint(0, 59):02d}:"
-                        f"{rng.randint(0, 59):02d}"),
+            "created": created,
             "modified": None}
 
 
@@ -344,7 +351,7 @@ def emit(name: str, *, pins: dict | None = None, seed: int = 0,
         kwargs["canon"] = canon
 
     model = cls.sample(rng, **kwargs)
-    meta = dict(metadata) if metadata else _metadata(cls, rng)
+    meta = dict(metadata) if metadata else _metadata(cls, rng, model)
     data = cls.render(model, metadata=meta, defect=defect)
 
     manifest = {

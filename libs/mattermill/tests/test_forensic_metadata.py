@@ -33,3 +33,15 @@ def test_creation_date_matches_represented_date(tmp_path):
     info = lens.pdf_info(p)
     assert info["created"] == "D:20260428135819"
     assert info["modified"] == "D:20260428135819"
+
+
+def test_shared_finalizer_removes_renderer_fingerprint(tmp_path):
+    """forge.pdf-renderer-fingerprint: governed PDF metadata must not be
+    contradicted by a ReportLab authoring-library comment in the file header."""
+    p = tmp_path / "d.pdf"
+    p.write_bytes(legalpdf.render_court_pdf(MODEL, header_stamp=None,
+                                            bates_prefix=None, metadata=META))
+    data = p.read_bytes()
+    assert b"ReportLab Generated PDF document" not in data
+    assert b"ReportLab generated PDF document" not in data
+    assert b"%\xe2\xe3\xcf\xd3" in data

@@ -134,11 +134,29 @@ def _fix_id(pdf: bytes) -> bytes:
     """Replace reportlab's randomized trailer /ID with a content hash.
     Pipeline tail for every emitter — also rebuilds the xref, because the
     byte-level metadata edits upstream shift object offsets."""
+    pdf = _scrub_renderer_comments(pdf)
     digest = hashlib.sha256(re.sub(rb"/ID\s*\[.*?\]", b"", pdf, flags=re.S)
                             ).hexdigest()
     id_pair = f"/ID [<{digest}><{digest}>]".encode()
     return _rebuild_xref(
         re.sub(rb"/ID\s*\[.*?\]", id_pair, pdf, count=1, flags=re.S))
+
+
+def _scrub_renderer_comments(pdf: bytes) -> bytes:
+    """Remove authoring-library fingerprints from PDF header comments.
+
+    ReportLab writes its own name outside the Info dictionary.  Leaving that
+    comment in a file whose governed metadata names the represented export
+    tool creates a direct forensic contradiction.  Same-length substitutions
+    preserve object offsets before the shared finalizer rebuilds the xref.
+    """
+    for old in (
+        b"ReportLab Generated PDF document (opensource)",
+        b"ReportLab generated PDF document -- digest (opensource)",
+    ):
+        replacement = b"%\xe2\xe3\xcf\xd3".ljust(len(old), b" ")
+        pdf = pdf.replace(old, replacement)
+    return pdf
 
 
 def _fix_dates(pdf: bytes, *, created: str | None, modified: str | None) -> bytes:

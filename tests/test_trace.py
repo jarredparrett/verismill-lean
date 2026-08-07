@@ -67,6 +67,18 @@ def test_reopen_continues_chain(bus_path, fixed_clock):
     assert trace.TraceBus.verify(bus_path)
 
 
+def test_stale_writer_is_rejected_before_it_can_fork_the_chain(
+        bus_path, fixed_clock):
+    """trace.single-writer: a handle with an old tail cannot append a fork."""
+    first = trace.TraceBus(bus_path, clock=fixed_clock)
+    stale = trace.TraceBus(bus_path, clock=fixed_clock)
+    first.emit("L0", "builder", "candidate")
+    with pytest.raises(RuntimeError, match="stale TraceBus handle"):
+        stale.emit("SYS", "auditor", "report")
+    assert len(trace.TraceBus.read(bus_path)) == 1
+    assert trace.TraceBus.verify(bus_path)
+
+
 def test_deterministic_under_fixed_clock(tmp_path, fixed_clock):
     def make(path):
         bus = trace.TraceBus(path, clock=fixed_clock)

@@ -169,8 +169,17 @@ def _fix_dates(pdf: bytes, *, created: str | None, modified: str | None) -> byte
     modified = modified or created
 
     def pdf_date(iso: str) -> str:
-        date, _, tm = iso.partition(" ")
-        return f"D:{date.replace('-', '')}{tm.replace(':', '')}"
+        date, _, tm = iso.strip().partition(" ")
+        zone = ""
+        if tm.endswith("Z"):
+            tm = tm[:-1]
+            zone = "Z"
+        else:
+            offset = re.search(r"([+-])(\d{2}):?(\d{2})$", tm)
+            if offset:
+                tm = tm[:offset.start()]
+                zone = f"{offset.group(1)}{offset.group(2)}'{offset.group(3)}'"
+        return f"D:{date.replace('-', '')}{tm.replace(':', '')}{zone}"
     if created:
         pdf = re.sub(rb"/CreationDate\s*\((?:\\.|[^()\\])*\)",
                      f"/CreationDate ({pdf_date(created)})".encode(), pdf)

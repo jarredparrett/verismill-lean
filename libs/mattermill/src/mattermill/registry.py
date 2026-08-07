@@ -38,7 +38,8 @@ from functools import partial
 from typing import Any, Callable
 
 from . import (__version__, acord, acord130, bill_of_sale, deed_nj, diligence,
-               estate_ma, lease_nj, nj_birth, observatory, vintage)
+               estate_ma, investigation, lease_nj, nj_birth, observatory,
+               vintage)
 
 # ---------------------------------------------------------------------------
 # Metadata profiles — how the artifact was captured, by era.
@@ -68,6 +69,16 @@ LAW_OFFICE = [
     ("Adobe Acrobat Pro DC 19.021", "Microsoft Word 2016"),
     ("Adobe PDF Library 15.0", "Microsoft Word for Mac 16.30"),
     ("PDF-XChange 8.0", "Worldox Document Manager"),
+]
+MUSEUM_OFFICE = [
+    # These records are built by the library's deterministic ReportLab export
+    # path.  Claiming Word, Acrobat, or a proprietary records system here is a
+    # forensic lie even when the visible page resembles ordinary office work.
+    # The represented institution may use a custom records export, but the PDF
+    # producer must remain consistent with its low-level construction.
+    ("ReportLab PDF Library - www.reportlab.com", "ReportLab PDF Library"),
+    ("ReportLab PDF Library - www.reportlab.com", "ReportLab Platypus"),
+    ("ReportLab PDF Library - www.reportlab.com", "ReportLab PDF Library 4"),
 ]
 
 
@@ -197,6 +208,71 @@ for _artifact_id, _class_name, _page_index in observatory.ARTIFACT_SPECS:
         takes_canon=True,
         public_facts=partial(
             observatory.public_artifact_facts, artifact_id=_artifact_id),
+    ))
+
+for _class_name, _summary, _sample in (
+    (
+        "museum_research_note",
+        "A museum research memorandum with source register, "
+        "source criticism, conclusion, limitations, and curatorial review.",
+        investigation.sample_research_note,
+    ),
+    (
+        "curatorial_chronology",
+        "A museum collections chronology separating historical, observed, "
+        "system, and device events with named sources and reading rules.",
+        investigation.sample_chronology,
+    ),
+    (
+        "conservation_examination",
+        "A preliminary paper and trace-material examination report with "
+        "custody, methods, observations, limitations, and technical review.",
+        investigation.sample_conservation,
+    ),
+    (
+        "access_event_report",
+        "A landscape historical access-control event export with sequence, "
+        "credential, cardholder, door, event, direction, and filters.",
+        investigation.sample_access,
+    ),
+    (
+        "tenant_account_ledger",
+        "A property-management tenant account record with premises, term, "
+        "recurring charge, deposit, transaction ledger, and export limitation.",
+        investigation.sample_tenant_account,
+    ),
+    (
+        "voicemail_evidence_report",
+        "A device-derived voicemail review report with source identity, "
+        "time-aligned transcript, audible-event labels, and limitations.",
+        investigation.sample_voicemail,
+    ),
+    (
+        "pump_emergency_card",
+        "A native-size pump-station emergency release card with equipment, "
+        "location, energy-isolation warning, release steps, and revision.",
+        investigation.sample_pump_card,
+    ),
+):
+    register(DocumentClass(
+        name=_class_name,
+        summary=_summary,
+        module="mattermill.investigation",
+        era="contemporary",
+        substrate=(
+            "born-digital printable equipment card"
+            if _class_name == "pump_emergency_card"
+            else "born-digital office PDF"
+        ),
+        pins={},
+        sample=_sample,
+        render=investigation.render_artifact,
+        profiles=MUSEUM_OFFICE,
+        capture_window=(2025, 2026),
+        takes_pins=True,
+        takes_canon=True,
+        public_facts=investigation.public_display_facts,
+        metadata_created=investigation.export_created,
     ))
 
 register(DocumentClass(

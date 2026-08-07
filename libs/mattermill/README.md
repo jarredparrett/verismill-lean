@@ -8,7 +8,8 @@ an ACORD 126 or 130, a 1642 bill of sale engrossed on a membrane, a 1987
 marital settlement typed on pleading paper, a coordinated Massachusetts
 estate file, a 1997 New Jersey deed, a
 multi-instrument diligence production, independently forgeable 1937
-private-observatory evidence objects, or an 1878 New Jersey birth return. It renders them
+private-observatory evidence objects, a contemporary museum-investigation
+record set, or an 1878 New Jersey birth return. It renders them
 **byte-identically for a given seed**, so a pipeline can regenerate, diff, and
 verify every byte.
 
@@ -72,7 +73,8 @@ displayed document data, not experiment standing or hidden narrative truth.
 
 ```python
 from mattermill import (acord, acord130, bill_of_sale, deed_nj, diligence,
-                        estate_ma, lease_nj, nj_birth, observatory, vintage)
+                        estate_ma, investigation, lease_nj, nj_birth,
+                        observatory, vintage)
 import random
 
 # ACORD 126 (2009/08, Commercial General Liability Section) — template-
@@ -209,7 +211,7 @@ Minnesota's algebra under a different heading.
 
 ## Status
 
-0.28.3 — API is unstable before 1.0 and will move while the foundry's realism
+0.29.0 — API is unstable before 1.0 and will move while the foundry's realism
 climb drives new emitters. The library is
 developed inside [verismill](https://github.com/jarredparrett/verismill-lean)
 as its rendering platform; it has no verismill dependencies.

@@ -574,7 +574,19 @@ class Experiment:
             instructions=(
                 "Independently review the exact candidate artifact against the frozen "
                 "rubric. Approve only when it is ready to proceed to public blind "
-                "measurement. Return approve with a concrete rationale when ready; "
+                "measurement. The candidate record and manifest are private experiment "
+                "provenance, not visible content of the represented document. A truthful "
+                "manifest naming Mattermill as the top-level emitter is compatible both "
+                "with PDF metadata naming the lower-level rendering engine Mattermill "
+                "actually used (for example, ReportLab) and with period-honest metadata "
+                "describing the producing system the represented document claims to come "
+                "from. A wrapper package and its rendering engine are complementary layers "
+                "of the same truthful build provenance, not competing emitter claims. Do "
+                "not reject merely because the manifest and PDF metadata name different "
+                "layers. Reject provenance only when a layer is false about how the bytes "
+                "were constructed or is forensically dishonest for the represented "
+                "document. Evaluate whether each layer is honest in its own role. Return "
+                "approve with a concrete rationale when ready; "
                 "otherwise return request_changes and explain why."
             ),
             inputs={

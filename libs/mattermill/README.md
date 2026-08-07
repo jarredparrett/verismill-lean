@@ -72,7 +72,8 @@ displayed document data, not experiment standing or hidden narrative truth.
 
 ```python
 from mattermill import (acord, acord130, bill_of_sale, deed_nj, diligence,
-                        estate_ma, lease_nj, nj_birth, observatory, vintage)
+                        estate_ma, lease_nj, nj_birth, observatory, vintage,
+                        wedding_suite)
 import random
 
 # ACORD 126 (2009/08, Commercial General Liability Section) — template-
@@ -93,6 +94,18 @@ bad  = acord.render_126(m126, metadata=..., defect={"premium_row": (0, 99999)})
 m130 = acord130.sample_130(random.Random(130))
 appl = acord130.render_130(m130, metadata=...)
 bad  = acord130.render_130(m130, metadata=..., defect={"arap": 412})  # no ARAP in MN
+
+# Contemporary three-card wedding suite — a 5x7 invitation plus coordinated
+# details and RSVP enclosures. Venue/date/capacity are caller canon; names and
+# logistics stay honest placeholders until pinned. Household allocation and
+# the overall invited count share the same capacity gate.
+suite = wedding_suite.sample_suite(random.Random(3),
+    canon=wedding_suite.DEFAULT_CANON,
+    pins={"couple_one": "Morgan Hale", "couple_two": "Avery Lin",
+          "invited_count": 200, "party_allocation": 2})
+proof = wedding_suite.render_suite(suite, metadata=...)
+bad = wedding_suite.render_suite(suite, metadata=...,
+                                 defect={"rsvp_allocation": 201})
 
 # Manuscript-era instruments as scans of engrossed manuscripts (a 1642 bill
 # of sale of a vessel: sourced clause anatomy, regnal-year/Lady Day dating,
@@ -209,7 +222,7 @@ Minnesota's algebra under a different heading.
 
 ## Status
 
-0.28.3 — API is unstable before 1.0 and will move while the foundry's realism
+0.29.0 — API is unstable before 1.0 and will move while the foundry's realism
 climb drives new emitters. The library is
 developed inside [verismill](https://github.com/jarredparrett/verismill-lean)
 as its rendering platform; it has no verismill dependencies.

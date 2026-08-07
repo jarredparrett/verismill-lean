@@ -38,7 +38,8 @@ from functools import partial
 from typing import Any, Callable
 
 from . import (__version__, acord, acord130, bill_of_sale, deed_nj, diligence,
-               estate_ma, lease_nj, nj_birth, observatory, vintage)
+               estate_ma, lease_nj, nj_birth, observatory, vintage,
+               wedding_suite)
 
 # ---------------------------------------------------------------------------
 # Metadata profiles — how the artifact was captured, by era.
@@ -284,6 +285,33 @@ register(DocumentClass(
     sample=nj_birth.sample_birth, render=nj_birth.render_birth,
     profiles=PLANETARY, capture_window=(2014, 2020),
     takes_pins=True, takes_canon=True,
+))
+
+register(DocumentClass(
+    name="wedding_invitation_suite",
+    summary="A coordinated contemporary wedding stationery proof: 5x7 main "
+            "invitation, details enclosure, and household-allocation RSVP card.",
+    module="mattermill.wedding_suite",
+    era="contemporary",
+    substrate="born-digital vector PDF for three trimmed paper cards",
+    pins={
+        "couple_one": "first partner's display name",
+        "couple_two": "second partner's display name",
+        "ceremony_time": "display time or explicit placeholder",
+        "reception_details": "reception line or explicit placeholder",
+        "rsvp_by": "response deadline or explicit placeholder",
+        "rsvp_method": "URL, email, or postal instruction",
+        "attire": "dress code or explicit placeholder",
+        "accommodations": "lodging/travel line or explicit placeholder",
+        "wedding_website": "site or explicit placeholder",
+        "invited_count": "whole-event invited head count, no more than capacity",
+        "party_allocation": "maximum guests for this household's RSVP card",
+    },
+    sample=wedding_suite.sample_suite, render=wedding_suite.render_suite,
+    profiles=[(f"mattermill PDF Engine {__version__}",
+               f"mattermill Wedding Suite {__version__}")],
+    capture_window=(2026, 2026), takes_pins=True, takes_canon=True,
+    metadata_created=wedding_suite.export_created,
 ))
 
 

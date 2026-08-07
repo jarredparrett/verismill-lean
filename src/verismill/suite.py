@@ -280,7 +280,12 @@ class ArtifactSuite:
         backends: list[Any],
         policy: PanelExecutionPolicy | None = None,
     ) -> str:
-        """Run and freeze one member's public absolute measurement workflow."""
+        """Measure one member and freeze it only after accepted standing.
+
+        A rejected measurement is evidence in the child Experiment, not a Suite
+        selection.  Leaving the member unselected permits ``continue_climb`` to
+        produce a child Candidate in the same lineage and measure it again.
+        """
         self._require_assembling()
         member = self.state["members"].get(member_id)
         if member is None:
@@ -295,7 +300,31 @@ class ArtifactSuite:
             backends=backends,
             policy=policy,
         )
-        self.select_member(member_id)
+        measured = self.experiment(member_id)
+        result = measured.artifact_result()
+        status = result["attestation"]["measurement"]["status"]
+        if status == "accepted":
+            self.select_member(member_id)
+        else:
+            self.bus.emit(
+                "SYS",
+                "orchestrator",
+                "suite_member",
+                inputs={
+                    "experiment_state": digest_bytes(
+                        measured.state_path.read_bytes()
+                    ),
+                    "experiment_bus": digest_bytes(measured.bus.path.read_bytes()),
+                    "artifact": result["attestation"]["artifact_hash"],
+                },
+                outputs={"evaluation": evaluation},
+                verdicts={
+                    "member_id": member_id,
+                    "status": status,
+                    "selection": "withheld",
+                },
+            )
+            self._save()
         return evaluation
 
     def revise(

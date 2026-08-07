@@ -574,7 +574,13 @@ class Experiment:
             instructions=(
                 "Independently review the exact candidate artifact against the frozen "
                 "rubric. Approve only when it is ready to proceed to public blind "
-                "measurement. Return approve with a concrete rationale when ready; "
+                "measurement. The candidate record and manifest are private experiment "
+                "provenance, not visible content of the represented document. A truthful "
+                "manifest naming Mattermill as the actual emitter is compatible with "
+                "period-honest PDF metadata describing the producing system the document "
+                "claims to come from; do not reject merely because those two layers name "
+                "different systems. Evaluate whether each layer is honest in its own "
+                "role. Return approve with a concrete rationale when ready; "
                 "otherwise return request_changes and explain why."
             ),
             inputs={

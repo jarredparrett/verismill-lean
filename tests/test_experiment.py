@@ -968,6 +968,8 @@ def test_independent_agent_approval_authorizes_public_blind_measurement(tmp_path
 
     approval_model = ModelConfig(provider="test", model="approval-model")
     task = exp.agent_approval_task(model=approval_model)
+    assert "private experiment provenance" in task.instructions
+    assert "compatible with period-honest PDF metadata" in task.instructions
     parsed = {"decision": "approve", "rationale": "The exact artifact meets the rubric."}
     approval_run = exp.record_agent_run(AgentRun(
         run_id="approval-run", agent_id="independent-approver",

@@ -244,6 +244,95 @@ def test_suite_creates_and_measures_member_through_public_experiment_api(tmp_pat
     assert suite.verify()["ok"]
 
 
+def test_rejected_suite_measurement_remains_unselected_and_can_continue_climb(
+        tmp_path):
+    """suite.rejected-member-lineage: failed measurement stays repairable."""
+    fresh_suite = ArtifactSuite.create(
+        tmp_path / "fresh-suite", request="Climb one archive",
+        suite_id="repairable_fresh", clock=lambda: 1_700_000_000,
+    )
+    target = fresh_suite.create_experiment(
+        "repairable_log", request="Forge repairable log"
+    )
+    target.freeze_preparation(
+        research={
+            "sources": [{
+                "id": "source-log", "kind": "facsimile",
+                "provenance": {"publisher": "archive"},
+            }],
+            "coverage": {"capture": "sourced"},
+        },
+        rubric={
+            "version": "repairable.1",
+            "dimensions": [{
+                "id": "capture", "description": "Captured-object fidelity",
+                "anchors": {"0": "flat", "100": "source-calibrated"},
+            }],
+            "acceptance": {"rules": [
+                {"metric": "overall_min", "operator": ">=", "value": 80},
+            ]},
+        },
+        requirements=[{
+            "id": "archive.capture", "property": "source-calibrated capture",
+            "failure": "page reads as a flat synthetic export",
+        }],
+    )
+    builder = target.record_agent_run(receipt("builder", "repairable"))
+    raw = b"%PDF-1.4\nrepairable\n"
+    selected = target.record_candidate(
+        artifact=raw,
+        manifest={
+            "class": "repairable_log", "mattermill": "test-1", "seed": 1,
+            "sha256": sha256(raw), "bytes": len(raw),
+        },
+        builder_run=builder,
+        explanation={
+            "observation": "baseline needs measurement",
+            "requirement": "archive.capture",
+            "change": "emitted first candidate",
+        },
+    )
+    seal_for_measurement(
+        target, selected, "repairable-target", agent_approval=True
+    )
+
+    class RejectingBackend:
+        def __init__(self, number: int):
+            self.number = number
+
+        def invoke(self, task):
+            parsed = {
+                "authenticity": "synthetic", "confidence": 0.9,
+                "dimension_scores": {"capture": 45},
+                "tells": [{
+                    "path": "document.pdf", "quote_or_region": "repairable",
+                    "rationale": "flat synthetic export",
+                }],
+            }
+            return AgentRun(
+                run_id=f"rejected-panel-{self.number}",
+                agent_id=f"rejected-agent-{self.number}",
+                context_id=f"rejected-context-{self.number}",
+                role=task.role, model=task.model,
+                prompt_hash=task.prompt_hash(), input_hashes=task.input_hashes(),
+                raw_response=json.dumps(parsed), parsed_output=parsed,
+            )
+
+    models = [ModelConfig(provider="test", model=f"reject-{i}")
+              for i in (1, 2, 3)]
+    fresh_suite.measure_member(
+        "repairable_log", class_name="repairable_log", persona="archivist",
+        models=models,
+        backends=[RejectingBackend(i) for i in (1, 2, 3)],
+    )
+
+    assert fresh_suite.state["members"]["repairable_log"]["attestation"] is None
+    rejected = fresh_suite.experiment("repairable_log")
+    assert rejected.phase.value == "judged"
+    rejected.continue_climb()
+    assert rejected.phase.value == "climbing"
+
+
 def test_suite_is_portable_and_detects_member_lineage_mutation(tmp_path):
     """suite.portability: relative child buses replay and exact mutation fails."""
     exp, candidate = prepare_experiment(tmp_path / "source", "ledger")

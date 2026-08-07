@@ -266,6 +266,10 @@ def test_rubric_absolute_brief_uses_only_frozen_dimensions():
     assert "lead-paint" not in brief
     assert "required disclosures" not in brief
     assert "signature_is_a_hand" not in brief
+    assert "CANONICAL-FACT RULE" in brief
+    assert "GENERATION-PROVENANCE RULE" in brief
+    assert "never reward a false producer claim" in brief
+    assert "do not treat the inability to find or recognize a proper noun" in brief
 
 
 def test_rubric_absolute_parser_requires_exact_dimension_set():

@@ -14,6 +14,7 @@ ROLES = frozenset({
     "orchestrator", "spec_author", "builder", "judge", "auditor",
     "researcher", "fixer",
     "development_judge", "blind_judge",
+    "approval_reviewer",
     "user",
 })
 EVENT_TYPES = frozenset({
@@ -25,6 +26,7 @@ EVENT_TYPES = frozenset({
     "suite_attestation",
     "panel_execution",
     "human_review",
+    "agent_approval",
 })
 
 _ENVELOPE_KEYS = {

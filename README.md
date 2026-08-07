@@ -127,12 +127,16 @@ verismill judge "$EXP" --mode absolute \
   --judge-run sha256:<receipt-3>
 ```
 
-After development selection, record `Experiment.record_human_review()` for the
-exact Candidate. Provider adapters can then call
+After development selection, authorize the exact Candidate with either
+`Experiment.record_human_review()` or an independent, receipted
+`approval_reviewer` run followed by `Experiment.record_agent_approval()`.
+The agent reviewer must have a different principal and context from every
+builder, fixer, and development judge. Provider adapters can then call
 `Experiment.run_absolute_blind_measurement()` to invoke, persist, and score the
 complete model panel in one operation. `PanelExecutionPolicy` bounds concurrent
-workers, retries, calls, and tokens; incomplete panels retain receipts but
-produce no standing.
+workers, retries, calls, and tokens; the panel receipt preserves which exact
+human or agent authorization permitted execution. Incomplete panels retain
+receipts but produce no standing.
 
 Downstream products materialize an emitted candidate through the public
 experiment facade rather than reading the experiment's object store:

@@ -74,12 +74,25 @@ Register a builder receipt, then either persist bytes directly with
 `record_candidate()` or render a mattermill class with `emit_candidate()`.
 Development rounds use `record_development_round()`. A `select` decision
 automatically seals the candidate and transitions to
-`awaiting_blind_judgment`. Record first-order oversight with
+`awaiting_blind_judgment`. Record optional first-order human oversight with
 `record_human_review()`. A `request_changes` decision returns the exact
 Candidate to the climb; an `approve` decision is content-addressed into its
-Artifact Attestation. The public panel runner will not invoke a provider until
-the current Candidate has this approval. Register at least three fresh
-`blind_judge` receipts
+Artifact Attestation. Human direction remains its own evidence type and is
+never rewritten as agent evidence.
+
+An independent agent can provide equivalent authorization without standing in
+for a human. Build its isolated `approval_reviewer` task with
+`agent_approval_task()`, persist the resulting `AgentRun`, then call
+`record_agent_approval()`. The typed `AgentApproval` binds that receipt's
+affirmative decision and rationale to the exact Candidate, artifact bytes, and
+frozen rubric. The reviewer must use a principal and context distinct from all
+builder, fixer, and development-judge receipts in the experiment. The public
+panel runner will not invoke a provider until the current Candidate has either
+a valid human approval or a valid independent agent approval. The chosen
+authorization and evidence type are also frozen into the panel execution
+receipt. The approval reviewer is excluded from the subsequent blind panel,
+keeping authorization and measurement independently occupied. Register at
+least three fresh `blind_judge` receipts
 covering every lens and record the evaluation. `submit_for_blind_judgment()` is
 only the explicit boundary for imported candidates or evaluation-only flows
 that intentionally skip development selection.
@@ -133,8 +146,10 @@ Invalid transitions raise. A rubric replacement is not a repair;
 - **Resume:** `Experiment.open(path)` reads the last durable state.
 - **Replay:** `replay()` returns the recorded event history without invoking
   agents.
-- **Verify:** `verify()` checks every reachable object hash, the bus chain, and
-  that published standing derives from an accepted evaluation.
+- **Verify:** `verify()` checks every reachable object hash, the bus chain,
+  human-review and agent-approval lineage, reviewer independence, panel
+  authorization, and that published standing derives from an accepted
+  evaluation. Older bundles without agent approvals remain valid.
 - **Rerun:** `rerun(destination, from_phase="development" | "evaluation")`
   creates a fresh attempt with the same frozen inputs. An evaluation rerun
   retains the candidate but no prior agent contexts.

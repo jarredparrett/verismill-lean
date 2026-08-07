@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-from verismill import (AgentRun, AgentTask, Experiment, ModelConfig,
+from verismill import (AgentApproval, AgentRun, AgentTask, Experiment, ModelConfig,
                        PanelExecutionError, PanelExecutionPolicy, Phase,
                        class_catalog, derive_local_standings, experiments_root,
                        user_data_root)
@@ -277,6 +277,7 @@ def test_artifact_result_is_a_public_materialization_boundary(tmp_path, monkeypa
         "rubric_hash": exp.state["refs"]["rubric"],
             "requirements_hash": exp.state["refs"]["requirements"],
             "human_approval": None,
+            "agent_approval": None,
         "measurement": {
             "status": "development_only", "evaluation": None, "standing": None,
         },
@@ -911,7 +912,218 @@ def test_human_direction_and_exact_candidate_approval_are_first_order(tmp_path):
     approval_ref = approve(exp, second)
     result = exp.artifact_result(second)
     assert result["attestation"]["human_approval"] == approval_ref
+    assert result["attestation"]["agent_approval"] is None
     assert exp.verify()["ok"]
+
+
+def test_independent_agent_approval_authorizes_public_blind_measurement(tmp_path):
+    """experiments.agent-approval-parity: a typed independent agent approval,
+    backed by an exact-input receipt, authorizes the same public panel as a
+    human approval without replacing human evidence."""
+    exp = prepared(tmp_path)
+    cand, _ = candidate(exp)
+    dev = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[dev], decision="select", score={"layout": 90},
+        findings=[])
+
+    approval_model = ModelConfig(provider="test", model="approval-model")
+    task = exp.agent_approval_task(model=approval_model)
+    parsed = {"decision": "approve", "rationale": "The exact artifact meets the rubric."}
+    approval_run = exp.record_agent_run(AgentRun(
+        run_id="approval-run", agent_id="independent-approver",
+        context_id="independent-approval-context", role=task.role, model=task.model,
+        prompt_hash=task.prompt_hash(), input_hashes=task.input_hashes(),
+        raw_response=json.dumps(parsed), parsed_output=parsed,
+    ))
+    approval_ref = exp.record_agent_approval(
+        candidate=cand, reviewer_run=approval_run)
+    approval = AgentApproval.from_dict(exp.store.read_json(approval_ref))
+    assert approval.candidate == cand
+    assert approval.rubric == exp.state["refs"]["rubric"]
+    attestation = exp.artifact_result(cand)["attestation"]
+    assert attestation["human_approval"] is None
+    assert attestation["agent_approval"] == approval_ref
+
+    models = [ModelConfig(provider="test", model=f"agent-approved-{i}")
+              for i in (1, 2, 3)]
+
+    class Backend:
+        def __init__(self, number):
+            self.number = number
+
+        def invoke(self, assigned):
+            verdict = absolute_output(91, "genuine")
+            return AgentRun(
+                run_id=f"agent-approved-panel-{self.number}",
+                agent_id=f"agent-approved-judge-{self.number}",
+                context_id=f"agent-approved-context-{self.number}",
+                role=assigned.role, model=assigned.model,
+                prompt_hash=assigned.prompt_hash(),
+                input_hashes=assigned.input_hashes(),
+                raw_response=json.dumps(verdict), parsed_output=verdict,
+            )
+
+    evaluation = exp.run_absolute_blind_measurement(
+        class_name="test_class", persona="domain expert", models=models,
+        backends=[Backend(i) for i in (1, 2, 3)],
+    )
+    execution_ref = exp.store.read_json(evaluation)["scorer_inputs"]["panel_execution"]
+    assert exp.store.read_json(execution_ref)["authorization"] == {
+        "evidence_type": "agent_approval", "approval_ref": approval_ref,
+    }
+    assert exp.verify()["ok"]
+    report = exp.report()
+    assert "Independent agent approvals" in report
+    assert "independent-approver" in report
+
+
+def test_agent_approval_reviewer_cannot_also_occupy_the_blind_panel(tmp_path):
+    """experiments.agent-approval-panel-independence: authorization and blind
+    measurement require different agent principals and contexts."""
+    exp = prepared(tmp_path)
+    cand, _ = candidate(exp)
+    dev = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[dev], decision="select", score={"layout": 90},
+        findings=[])
+    task = exp.agent_approval_task(
+        model=ModelConfig(provider="test", model="approval-model"))
+    parsed = {"decision": "approve", "rationale": "Ready for blind measurement."}
+    approval_run = exp.record_agent_run(AgentRun(
+        run_id="approval-run", agent_id="approval-principal",
+        context_id="approval-context", role=task.role, model=task.model,
+        prompt_hash=task.prompt_hash(), input_hashes=task.input_hashes(),
+        raw_response=json.dumps(parsed), parsed_output=parsed,
+    ))
+    exp.record_agent_approval(candidate=cand, reviewer_run=approval_run)
+    blind = [
+        exp.record_agent_run(run(
+            "blind_judge", number,
+            agent="approval-principal" if number == 1 else None,
+            context="fresh-blind-context" if number == 1 else None,
+        ))
+        for number in (1, 2, 3)
+    ]
+    with pytest.raises(ValueError, match="not fresh"):
+        exp.record_absolute_blind_evaluation(judge_runs=blind)
+
+
+@pytest.mark.parametrize("prior_role", ["builder", "fixer", "development_judge"])
+def test_agent_approval_reviewer_principal_and_context_must_be_independent(
+        tmp_path, prior_role):
+    """experiments.agent-approval-independence: the authorization reviewer
+    cannot reuse a builder, fixer, or development-judge principal/context."""
+    exp = prepared(tmp_path)
+    cand, builder_ref = candidate(exp)
+    dev = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[dev], decision="select", score={"layout": 90},
+        findings=[])
+    if prior_role == "builder":
+        prior = exp._run(builder_ref)
+    elif prior_role == "development_judge":
+        prior = exp._run(dev)
+    else:
+        fixer_ref = exp.record_agent_run(run("fixer", 9))
+        prior = exp._run(fixer_ref)
+
+    task = exp.agent_approval_task(
+        model=ModelConfig(provider="test", model="approval-model"))
+    parsed = {"decision": "approve", "rationale": "Ready for measurement."}
+    reviewer = exp.record_agent_run(AgentRun(
+        run_id=f"conflicted-{prior_role}", agent_id=prior.agent_id,
+        context_id=f"fresh-{prior_role}", role=task.role, model=task.model,
+        prompt_hash=task.prompt_hash(), input_hashes=task.input_hashes(),
+        raw_response=json.dumps(parsed), parsed_output=parsed,
+    ))
+    with pytest.raises(ValueError, match="principal is not independent"):
+        exp.record_agent_approval(candidate=cand, reviewer_run=reviewer)
+
+    context_reviewer = exp.record_agent_run(AgentRun(
+        run_id=f"context-conflicted-{prior_role}",
+        agent_id=f"fresh-principal-{prior_role}", context_id=prior.context_id,
+        role=task.role, model=task.model, prompt_hash=task.prompt_hash(),
+        input_hashes=task.input_hashes(), raw_response=json.dumps(parsed),
+        parsed_output=parsed,
+    ))
+    with pytest.raises(ValueError, match="context is not independent"):
+        exp.record_agent_approval(candidate=cand, reviewer_run=context_reviewer)
+
+
+def test_pre_agent_approval_artifact_attestation_shape_remains_replayable(tmp_path):
+    """experiments.agent-approval-backcompat: opening a legacy state without
+    agent approvals preserves its Artifact Attestation shape."""
+    exp = prepared(tmp_path)
+    cand, _ = candidate(exp)
+    state = json.loads(exp.state_path.read_text())
+    state.pop("agent_approvals")
+    exp.state_path.write_text(json.dumps(state))
+
+    legacy = Experiment.open(exp.root)
+    assert "agent_approval" not in legacy.artifact_result(cand)["attestation"]
+    assert legacy.verify()["ok"]
+
+
+def test_agent_approval_receipt_must_bind_exact_candidate_inputs(tmp_path):
+    """experiments.agent-approval-inputs: a reviewer receipt for different
+    bytes or a different frozen instrument cannot authorize this Candidate."""
+    exp = prepared(tmp_path)
+    cand, _ = candidate(exp)
+    dev = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[dev], decision="select", score={"layout": 90},
+        findings=[])
+    task = exp.agent_approval_task(
+        model=ModelConfig(provider="test", model="approval-model"))
+    parsed = {"decision": "approve", "rationale": "Ready for measurement."}
+    wrong_inputs = task.input_hashes()
+    wrong_inputs["candidate"] = sha256("another candidate")
+    reviewer = exp.record_agent_run(AgentRun(
+        run_id="wrong-input-approval", agent_id="independent-approver",
+        context_id="independent-approval-context", role=task.role,
+        model=task.model, prompt_hash=task.prompt_hash(), input_hashes=wrong_inputs,
+        raw_response=json.dumps(parsed), parsed_output=parsed,
+    ))
+    with pytest.raises(ValueError, match="does not bind the exact artifact"):
+        exp.record_agent_approval(candidate=cand, reviewer_run=reviewer)
+
+
+def test_later_human_direction_blocks_an_earlier_agent_approval(tmp_path):
+    """experiments.human-direction-precedence: optional human direction stays
+    first-order evidence and a later request for changes blocks measurement."""
+    exp = prepared(tmp_path)
+    cand, _ = candidate(exp)
+    dev = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[dev], decision="select", score={"layout": 90},
+        findings=[])
+    task = exp.agent_approval_task(
+        model=ModelConfig(provider="test", model="approval-model"))
+    parsed = {"decision": "approve", "rationale": "Ready for measurement."}
+    reviewer = exp.record_agent_run(AgentRun(
+        run_id="approval-before-human-direction", agent_id="independent-approver",
+        context_id="independent-approval-context", role=task.role,
+        model=task.model, prompt_hash=task.prompt_hash(),
+        input_hashes=task.input_hashes(), raw_response=json.dumps(parsed),
+        parsed_output=parsed,
+    ))
+    exp.record_agent_approval(candidate=cand, reviewer_run=reviewer)
+    exp.record_human_review(
+        candidate=cand, reviewer_id="human-reviewer",
+        decision="request_changes", feedback=[],
+    )
+    dev2 = exp.record_agent_run(run("development_judge", 2))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[dev2], decision="select", score={"layout": 90},
+        findings=[])
+    with pytest.raises(ValueError, match="human approval or independent agent approval"):
+        exp.run_absolute_blind_measurement(
+            class_name="test_class", persona="domain expert",
+            models=[ModelConfig(provider="test", model=f"veto-{i}")
+                    for i in (1, 2, 3)],
+            backends=[object(), object(), object()],
+        )
 
 
 def test_blind_panel_runs_concurrently_but_persists_assigned_order(tmp_path):

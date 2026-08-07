@@ -101,11 +101,14 @@ ROLE_VISIBLE_FIELDS: dict[str, frozenset[str]] = {
                                     "current_candidate"}),
     "blind_judge": frozenset({"phase", "rubric", "current_candidate",
                               "trial_packet"}),
+    "approval_reviewer": frozenset({"id", "revision", "request", "phase",
+                                     "rubric", "current_candidate"}),
     "auditor": frozenset({"*"}),
     "user": frozenset({"id", "revision", "request", "phase", "research_summary",
                        "rubric", "requirements", "current_candidate", "candidates", "development",
                        "evaluations", "atlas_summary", "standing", "measurement",
-                       "development_standing", "human_reviews", "next_actions"}),
+                       "development_standing", "human_reviews", "agent_approvals",
+                       "next_actions"}),
 }
 
 

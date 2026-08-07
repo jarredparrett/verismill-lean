@@ -17,13 +17,14 @@ _REF_KEYS = frozenset({
     "parent_state", "state", "attestation", "member_attestation",
     "panel_execution",
     "parent_attestation",
-    "human_review", "human_approval",
+    "human_review", "human_approval", "agent_approval", "approval_ref",
+    "reviewer_run",
 })
 _REF_LIST_KEYS = frozenset({
     "agent_runs", "inherited_agent_runs", "references", "candidates", "development_rounds",
     "evaluations", "reports", "judge_runs", "prior_revisions",
     "panel_executions",
-    "human_reviews",
+    "human_reviews", "agent_approvals",
 })
 _REF_MAP_KEYS = frozenset({"refs", "output_refs", "carried_forward"})
 _DIGEST_KEYS = frozenset({

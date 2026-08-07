@@ -9,7 +9,7 @@ Experiments; it does not replace them.
 ```text
 create suite
   -> create or link independent Experiments
-  -> build, approve, and measure each child
+  -> build, independently approve, and measure each child
   -> select one exact Candidate per member
   -> derive collection qualification
   -> attest the immutable collection
@@ -17,8 +17,9 @@ create suite
 
 `create_experiment()` creates a normal Experiment beneath the portable suite
 root. The caller uses the complete Experiment API to freeze research and a
-rubric, register model receipts, record or emit Candidates, apply human review,
-and run blind measurement. `select_member()` freezes its exact current
+rubric, register model receipts, record or emit Candidates, optionally apply
+human review, record independent agent approval when used, and run blind
+measurement. `select_member()` freezes its exact current
 Candidate and Artifact Attestation into the collection.
 
 `link_experiment()` accepts an existing verified Experiment. It snapshots only
@@ -33,9 +34,12 @@ Artifact Attestation. Provider identity, resolved model, prompts, inputs, raw
 outputs, usage, and independent judge contexts remain child Experiment
 evidence.
 
-Public blind execution requires a persisted human approval for the exact child
-Candidate. The approval is part of the Artifact Attestation; it is not a note
-outside the lineage.
+Public blind execution requires either a persisted human approval or a typed,
+receipt-backed independent agent approval for the exact child Candidate and
+its frozen rubric. Both appear as distinct fields in the Artifact Attestation;
+human evidence is not synthesized when an agent authorizes measurement. An
+agent approver must use the `approval_reviewer` role and a fresh principal and
+context relative to the child's builder, fixer, and development judges.
 
 ## Qualification
 
@@ -95,11 +99,14 @@ night_log = suite.create_experiment(
 # candidate = night_log.emit_candidate(..., builder_run=builder_ref, ...)
 # development_ref = night_log.invoke_agent(development_backend, development_task)
 # night_log.record_development_round(..., decision="select")
-night_log.record_human_review(
+# Human approval remains available:
+# night_log.record_human_review(..., decision="approve")
+# Or authorize with a separate agent receipt:
+approval_task = night_log.agent_approval_task(model=approval_model)
+approval_run = night_log.invoke_agent(approval_backend, approval_task)
+night_log.record_agent_approval(
     candidate=candidate,
-    reviewer_id="creator-42",
-    decision="approve",
-    feedback=[],
+    reviewer_run=approval_run,
 )
 
 models = [

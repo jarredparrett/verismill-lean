@@ -547,11 +547,9 @@ class Experiment:
         return ref
 
     def _human_approval(self, candidate: str) -> str | None:
-        for ref in reversed(self.state.get("human_reviews", [])):
-            review = self.store.read_json(ref)
-            if review.get("candidate") == candidate:
-                return ref if review.get("decision") == "approve" else None
-        return None
+        authorization = self._measurement_authorization(candidate)
+        return (authorization[1]
+                if authorization and authorization[0] == "human_approval" else None)
 
     def agent_approval_task(self, *, model: ModelConfig) -> AgentTask:
         """Build the isolated task whose receipt can authorize measurement."""
@@ -629,11 +627,12 @@ class Experiment:
         return reviewer
 
     def record_agent_approval(self, *, candidate: str, reviewer_run: str) -> str:
-        """Persist an independent agent authorization for public measurement.
+        """Persist an independent agent decision about public measurement.
 
         The registered ``approval_reviewer`` receipt must prove that it saw the
-        exact artifact, Candidate record, and frozen rubric. Its parsed approve
-        decision and rationale become the typed approval record.
+        exact artifact, Candidate record, and frozen rubric. Its parsed decision
+        and rationale become typed evidence. Only ``approve`` authorizes a panel;
+        ``request_changes`` returns the experiment to development.
         """
         if self.phase != Phase.AWAITING_BLIND_JUDGMENT:
             raise ValueError("agent approval requires a selected development candidate")
@@ -663,32 +662,63 @@ class Experiment:
                           "context_id": reviewer.context_id},
             )
             self._save()
+        if approval.decision == "request_changes" \
+                and self.phase == Phase.AWAITING_BLIND_JUDGMENT:
+            self._transition(
+                Phase.CLIMBING,
+                reason=(
+                    "independent agent review requested candidate changes before "
+                    "blind measurement"
+                ),
+            )
         return ref
 
     def _agent_approval(self, candidate: str) -> str | None:
-        for ref in reversed(self.state.get("agent_approvals", [])):
-            approval = AgentApproval.from_dict(self.store.read_json(ref))
-            if approval.candidate == candidate:
-                return ref
-        return None
+        authorization = self._measurement_authorization(candidate)
+        return (authorization[1]
+                if authorization and authorization[0] == "agent_approval" else None)
 
     def _measurement_authorization(self, candidate: str) -> tuple[str, str] | None:
-        """Return the latest first-order authorization for this exact Candidate."""
-        for event in reversed(self.replay()):
-            if event["event_type"] == "human_review" \
-                    and event["input_hashes"].get("candidate") == candidate:
-                review_ref = event["output_refs"].get("human_review")
-                review = self.store.read_json(review_ref)
-                if review.get("decision") == "request_changes":
-                    return None
-                if review.get("decision") == "approve":
-                    return "human_approval", review_ref
+        """Return first-order authorization for this exact Candidate.
+
+        Human direction has durable precedence. Each human reviewer's latest
+        decision remains in force for these exact candidate bytes; one unresolved
+        ``request_changes`` veto cannot be bypassed by a later agent approval.
+        The same human can resolve that veto by approving, or development can
+        produce a new Candidate hash. With no unresolved human veto, the latest
+        human approval wins; otherwise the latest agent decision is considered.
+        """
+        events = self.replay()
+        human_decisions: dict[str, tuple[str, str, int]] = {}
+        for position, event in enumerate(events):
+            if event["event_type"] != "human_review" \
+                    or event["input_hashes"].get("candidate") != candidate:
+                continue
+            review_ref = event["output_refs"].get("human_review")
+            review = self.store.read_json(review_ref)
+            human_decisions[review["reviewer_id"]] = (
+                review["decision"], review_ref, position,
+            )
+        if any(decision == "request_changes"
+               for decision, _, _ in human_decisions.values()):
+            return None
+        human_approvals = [
+            (position, review_ref)
+            for decision, review_ref, position in human_decisions.values()
+            if decision == "approve"
+        ]
+        if human_approvals:
+            _, review_ref = max(human_approvals)
+            return "human_approval", review_ref
+
+        for event in reversed(events):
             if event["event_type"] == "agent_approval" \
                     and event["input_hashes"].get("candidate") == candidate:
                 approval_ref = event["output_refs"].get("agent_approval")
                 approval = AgentApproval.from_dict(self.store.read_json(approval_ref))
                 self._validate_agent_approval(approval)
-                return "agent_approval", approval_ref
+                return (("agent_approval", approval_ref)
+                        if approval.decision == "approve" else None)
         return None
 
     def record_tell(self, *, tell_class: str, path: str, rationale: str,
@@ -1651,7 +1681,8 @@ class Experiment:
                     raise ValueError("panel execution agent approval is not registered")
                 approval = AgentApproval.from_dict(self.store.read_json(approval_ref))
                 self._validate_agent_approval(approval)
-                if approval.candidate != record["candidate"] \
+                if approval.decision != "approve" \
+                        or approval.candidate != record["candidate"] \
                         or approval.rubric != record["rubric"]:
                     raise ValueError("panel execution agent approval lineage differs")
             else:
@@ -1785,11 +1816,12 @@ class Experiment:
                     )
             lines.append("")
         if view.get("agent_approvals"):
-            lines += ["## Independent agent approvals", ""]
+            lines += ["## Independent agent reviews", ""]
             for item in view["agent_approvals"]:
                 reviewer = self._run(item["reviewer_run"], {"approval_reviewer"})
                 lines.append(
-                    f"- **approve** by agent principal `{reviewer.agent_id}` in "
+                    f"- **{item['decision']}** by agent principal "
+                    f"`{reviewer.agent_id}` in "
                     f"context `{reviewer.context_id}` for Candidate "
                     f"`{item['candidate']}` against rubric `{item['rubric']}`"
                 )

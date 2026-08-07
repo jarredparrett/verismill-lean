@@ -314,11 +314,12 @@ class AgentRun:
 
 @dataclass(frozen=True)
 class AgentApproval:
-    """An independent agent's approval of one exact Candidate and rubric.
+    """An independent agent's typed decision on one Candidate and rubric.
 
     The reviewer invocation remains the authoritative model receipt.  This
-    smaller typed record binds its affirmative decision to the immutable
-    inputs and makes that evidence independently addressable.
+    smaller typed record binds either ``approve`` or ``request_changes`` to
+    the immutable inputs and makes that evidence independently addressable.
+    Only an affirmative decision is measurement authorization.
     """
 
     candidate: str
@@ -332,8 +333,10 @@ class AgentApproval:
             if not isinstance(getattr(self, name), str) \
                     or not _SHA256.fullmatch(getattr(self, name)):
                 raise ValueError(f"agent approval {name} must be an object reference")
-        if self.decision != "approve":
-            raise ValueError("agent approval decision must be approve")
+        if self.decision not in {"approve", "request_changes"}:
+            raise ValueError(
+                "agent approval decision must be approve or request_changes"
+            )
         if not isinstance(self.rationale, str) or not self.rationale.strip():
             raise ValueError("agent approval rationale is required")
 

@@ -84,11 +84,18 @@ An independent agent can provide equivalent authorization without standing in
 for a human. Build its isolated `approval_reviewer` task with
 `agent_approval_task()`, persist the resulting `AgentRun`, then call
 `record_agent_approval()`. The typed `AgentApproval` binds that receipt's
-affirmative decision and rationale to the exact Candidate, artifact bytes, and
-frozen rubric. The reviewer must use a principal and context distinct from all
-builder, fixer, and development-judge receipts in the experiment. The public
-panel runner will not invoke a provider until the current Candidate has either
-a valid human approval or a valid independent agent approval. The chosen
+decision and rationale to the exact Candidate, artifact bytes, and frozen
+rubric. Both `approve` and `request_changes` are persisted; only `approve`
+authorizes measurement, while `request_changes` returns the exact Candidate to
+development. The reviewer must use a principal and context distinct from all
+builder, fixer, and development-judge receipts in the experiment.
+
+Human direction has durable precedence per reviewer and exact Candidate hash.
+An unresolved human `request_changes` veto cannot be bypassed by a later agent
+approval (or by a different human's approval). It is cleared only when that
+reviewer approves the same Candidate, or when development emits new Candidate
+bytes. The public panel runner will not invoke a provider until the current
+Candidate has valid authorization. The chosen
 authorization and evidence type are also frozen into the panel execution
 receipt. The approval reviewer is excluded from the subsequent blind panel,
 keeping authorization and measurement independently occupied. Register at

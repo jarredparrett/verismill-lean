@@ -119,6 +119,25 @@ def approve(exp: Experiment, candidate_ref: str) -> str:
     )
 
 
+def agent_review(exp: Experiment, candidate_ref: str, *, decision: str,
+                 suffix: str) -> str:
+    task = exp.agent_approval_task(
+        model=ModelConfig(provider="test", model=f"approval-{suffix}"))
+    parsed = {
+        "decision": decision,
+        "rationale": f"Independent review {suffix}: {decision}.",
+    }
+    reviewer = exp.record_agent_run(AgentRun(
+        run_id=f"approval-{suffix}", agent_id=f"independent-approver-{suffix}",
+        context_id=f"independent-approval-context-{suffix}", role=task.role,
+        model=task.model, prompt_hash=task.prompt_hash(),
+        input_hashes=task.input_hashes(), raw_response=json.dumps(parsed),
+        parsed_output=parsed,
+    ))
+    return exp.record_agent_approval(
+        candidate=candidate_ref, reviewer_run=reviewer)
+
+
 def emitted_candidate(exp: Experiment, monkeypatch, *,
                       class_name: str, mattermill: str) -> str:
     """Record a lightweight candidate through the trusted emitter boundary."""
@@ -974,7 +993,7 @@ def test_independent_agent_approval_authorizes_public_blind_measurement(tmp_path
     }
     assert exp.verify()["ok"]
     report = exp.report()
-    assert "Independent agent approvals" in report
+    assert "Independent agent reviews" in report
     assert "independent-approver" in report
 
 
@@ -1089,6 +1108,39 @@ def test_agent_approval_receipt_must_bind_exact_candidate_inputs(tmp_path):
         exp.record_agent_approval(candidate=cand, reviewer_run=reviewer)
 
 
+def test_agent_request_changes_is_typed_evidence_but_not_authorization(tmp_path):
+    """experiments.agent-request-changes: a negative independent review is
+    persisted and replayable, returns the attempt to development, and cannot
+    authorize measurement even if the unchanged Candidate is selected again."""
+    exp = prepared(tmp_path)
+    cand, _ = candidate(exp)
+    dev = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[dev], decision="select", score={"layout": 90},
+        findings=[])
+
+    decision_ref = agent_review(
+        exp, cand, decision="request_changes", suffix="negative")
+    decision = AgentApproval.from_dict(exp.store.read_json(decision_ref))
+    assert decision.decision == "request_changes"
+    assert decision_ref in exp.state["agent_approvals"]
+    assert exp.phase == Phase.CLIMBING
+    assert exp.artifact_result(cand)["attestation"]["agent_approval"] is None
+    assert exp.verify()["ok"]
+
+    dev2 = exp.record_agent_run(run("development_judge", 2))
+    exp.record_development_round(
+        candidate=cand, judge_runs=[dev2], decision="select", score={"layout": 90},
+        findings=[])
+    with pytest.raises(ValueError, match="human approval or independent agent approval"):
+        exp.run_absolute_blind_measurement(
+            class_name="test_class", persona="domain expert",
+            models=[ModelConfig(provider="test", model=f"negative-{i}")
+                    for i in (1, 2, 3)],
+            backends=[object(), object(), object()],
+        )
+
+
 def test_later_human_direction_blocks_an_earlier_agent_approval(tmp_path):
     """experiments.human-direction-precedence: optional human direction stays
     first-order evidence and a later request for changes blocks measurement."""
@@ -1117,6 +1169,10 @@ def test_later_human_direction_blocks_an_earlier_agent_approval(tmp_path):
     exp.record_development_round(
         candidate=cand, judge_runs=[dev2], decision="select", score={"layout": 90},
         findings=[])
+    later_agent_ref = agent_review(
+        exp, cand, decision="approve", suffix="after-human-veto")
+    assert AgentApproval.from_dict(
+        exp.store.read_json(later_agent_ref)).decision == "approve"
     with pytest.raises(ValueError, match="human approval or independent agent approval"):
         exp.run_absolute_blind_measurement(
             class_name="test_class", persona="domain expert",
@@ -1124,6 +1180,60 @@ def test_later_human_direction_blocks_an_earlier_agent_approval(tmp_path):
                     for i in (1, 2, 3)],
             backends=[object(), object(), object()],
         )
+    vetoed_attestation = exp.artifact_result(cand)["attestation"]
+    assert vetoed_attestation["human_approval"] is None
+    assert vetoed_attestation["agent_approval"] is None
+
+    # Another human cannot silently clear the first reviewer's veto.
+    exp.record_human_review(
+        candidate=cand, reviewer_id="different-human",
+        decision="approve", feedback=[],
+    )
+    assert exp._measurement_authorization(cand) is None
+    still_vetoed = exp.artifact_result(cand)["attestation"]
+    assert still_vetoed["human_approval"] is None
+    assert still_vetoed["agent_approval"] is None
+
+    # The vetoing human can explicitly resolve their direction for these bytes.
+    human_approval = exp.record_human_review(
+        candidate=cand, reviewer_id="human-reviewer",
+        decision="approve", feedback=[],
+    )
+    assert exp._measurement_authorization(cand) == (
+        "human_approval", human_approval)
+    resolved_attestation = exp.artifact_result(cand)["attestation"]
+    assert resolved_attestation["human_approval"] == human_approval
+    assert resolved_attestation["agent_approval"] is None
+    assert exp.verify()["ok"]
+
+
+def test_human_veto_is_scoped_to_exact_candidate_bytes(tmp_path):
+    """experiments.human-veto-candidate-scope: unresolved human direction
+    blocks the unchanged Candidate but does not contaminate a newly emitted
+    Candidate with a different content hash."""
+    exp = prepared(tmp_path)
+    first, _ = candidate(exp)
+    dev = exp.record_agent_run(run("development_judge", 1))
+    exp.record_development_round(
+        candidate=first, judge_runs=[dev], decision="select", score={"layout": 90},
+        findings=[])
+    exp.record_human_review(
+        candidate=first, reviewer_id="human-reviewer",
+        decision="request_changes", feedback=[],
+    )
+
+    second, _ = candidate(exp, 2)
+    assert second != first
+    dev2 = exp.record_agent_run(run("development_judge", 2))
+    exp.record_development_round(
+        candidate=second, judge_runs=[dev2], decision="select", score={"layout": 90},
+        findings=[])
+    second_approval = agent_review(
+        exp, second, decision="approve", suffix="new-candidate")
+    assert exp._measurement_authorization(second) == (
+        "agent_approval", second_approval)
+    assert exp._measurement_authorization(first) is None
+    assert exp.verify()["ok"]
 
 
 def test_blind_panel_runs_concurrently_but_persists_assigned_order(tmp_path):

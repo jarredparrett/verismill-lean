@@ -131,7 +131,12 @@ After development selection, authorize the exact Candidate with either
 `Experiment.record_human_review()` or an independent, receipted
 `approval_reviewer` run followed by `Experiment.record_agent_approval()`.
 The agent reviewer must have a different principal and context from every
-builder, fixer, and development judge. Provider adapters can then call
+builder, fixer, and development judge. Both agent decisions are retained as
+typed evidence: `request_changes` returns the Candidate to development, while
+only `approve` authorizes measurement. An unresolved human `request_changes`
+veto on the exact Candidate bytes cannot be superseded by an agent approval;
+the same human must approve or development must produce a new Candidate hash.
+Provider adapters can then call
 `Experiment.run_absolute_blind_measurement()` to invoke, persist, and score the
 complete model panel in one operation. `PanelExecutionPolicy` bounds concurrent
 workers, retries, calls, and tokens; the panel receipt preserves which exact

@@ -72,6 +72,16 @@ def test_conservation_report_carries_osac_casework_anatomy_and_limits():
         assert marker.lower() in text.lower()
 
 
+def test_conservation_final_status_matches_metadata_and_release_chronology():
+    """investigation.conservation-release-provenance: a final report's PDF
+    title and normalized UTC creation time agree with its visible release."""
+    data, _ = _pdf("conservation_examination")
+    metadata = pdfium.PdfDocument(data).get_metadata_dict()
+    assert metadata["Title"] == "Limited examination report"
+    assert metadata["CreationDate"] == "D:20260211184600-05'00'"
+    assert metadata["ModDate"] == metadata["CreationDate"]
+
+
 def test_access_export_uses_historical_report_fields_and_native_landscape():
     """investigation.access-event-export: event sequence, time, credential,
     cardholder, door, event message, direction, and exact filters are visible."""
@@ -79,23 +89,28 @@ def test_access_export_uses_historical_report_fields_and_native_landscape():
     text = _text(data)
     for marker in (
         "Sequence", "Credential", "Cardholder", "Door / device",
-        "Event message", "REPORT PARAMETERS", "controller-assigned",
+        "Event message", "Database", "Operator / workstation",
+        "Controller event sequence",
     ):
         assert marker.lower() in text.lower()
     page = pdfium.PdfDocument(data)[0]
     assert page.get_width() > page.get_height()
 
 
-def test_tenant_account_is_honest_about_not_being_the_executed_lease():
+def test_tenant_account_separates_rent_receivable_and_deposit_liability():
     """investigation.tenant-account: one coherent property-system record links
-    tenant, premises, term, rent, deposit, transactions, and its own limits."""
-    text = _text(_pdf("tenant_account_ledger")[0])
+    resident, premises, term, charges and receipts while keeping the security
+    deposit outside the rent receivable balance."""
+    data, _ = _pdf("tenant_account_ledger")
+    text = _text(data)
     for marker in (
-        "TENANT ACCOUNT RECORD", "Tenant of record", "Term and recurring charge",
-        "Account ledger", "$2,800.00", "$4,200.00", "not the executed lease",
+        "Resident Ledger", "Resident", "Lease term", "Account activity",
+        "$2,800.00", "$4,200.00", "Rent balance", "Deposit held",
     ):
         assert marker.lower() in text.lower()
     assert "RESIDENTIAL LEASE AGREEMENT" not in text
+    page = pdfium.PdfDocument(data)[0]
+    assert page.get_height() > page.get_width()
 
 
 def test_voicemail_report_preserves_source_audio_over_derived_transcript():
@@ -103,26 +118,37 @@ def test_voicemail_report_preserves_source_audio_over_derived_transcript():
     events remain subordinate to the hashed retained source audio."""
     text = _text(_pdf("voicemail_evidence_report")[0])
     for marker in (
-        "VOICEMAIL EVIDENCE REPORT", "Source record", "Time-aligned transcript",
-        "retained audio is the source record", "not biometric identification",
+        "DV-04 — Limited Mobile File Collection", "Authority and collection boundary",
+        "Operator event log", "File Verification / Listening Notes",
+        "effective 2025-10-01", "HPHC-IR-04", "CT-20260211-2131-07",
+        "VM-00018472_20260211T203814-0500.m4a",
+        "IR-26-07/source/MER-26-019", "711fc12a",
+        "no device extraction", "not a carrier-origin record",
+        "not biometric speaker identification",
     ):
         assert marker.lower() in text.lower()
 
 
 def test_pump_card_has_native_card_geometry_and_safety_order():
-    """investigation.pump-emergency-card: the native card identifies equipment,
-    forbids occupancy, isolates energy, releases externally, and records use."""
+    """investigation.pump-emergency-card: the equipment-mounted sheet defines
+    non-entry release, defers entry and guarded work to controlled procedures,
+    and records inspection, restoration authority, and post-use disposition."""
     data, _ = _pdf("pump_emergency_card")
     text = _text(data)
     for marker in (
-        "EMERGENCY RELEASE", "PUMP HOUSING P-2", "NO OCCUPANCY",
-        "Isolate electrical disconnect", "RED EMERGENCY RELEASE RING",
-        "tag P-2 out of service",
+        "NON-ENTRY EMERGENCY RELEASE", "PERMIT-REQUIRED CONFINED SPACE",
+        "ER-2 RED RING", "DO NOT ENTER", "Trained and authorized staff",
+        "use CSP-03 and ECP-LOTO-02 in full", "AFTER ER-2 OPERATION",
+        "IF ER-2 DOES NOT OPEN DR-2", "NEVER ENTER R-2 FOR RESCUE",
+        "P-2 work order", "Hoboken Fire Department technical rescue",
+        "permit number and attendant", "Facilities DMS > Safety Documents",
+        "Director of Safety & Compliance", "MONTHLY FIELD CHECK",
+        "P-2 / ASSET 0227", "YOU ARE HERE",
     ):
         assert marker.lower() in text.lower()
     page = pdfium.PdfDocument(data)[0]
-    assert page.get_width() == pytest.approx(432)
-    assert page.get_height() == pytest.approx(288)
+    assert page.get_width() == pytest.approx(792)
+    assert page.get_height() == pytest.approx(612)
 
 
 def test_investigation_defect_is_one_explicit_display_delta():

@@ -65,7 +65,7 @@ TRANSITIONS: dict[Phase, frozenset[Phase]] = {
 
 AGENT_ROLES = frozenset({
     "researcher", "builder", "fixer", "development_judge", "blind_judge",
-    "auditor",
+    "approval_reviewer", "auditor",
 })
 
 
@@ -310,6 +310,61 @@ class AgentRun:
                    parsed_output=dict(value["parsed_output"]),
                    usage=dict(value.get("usage", {})),
                    tool_trace=tuple(value.get("tool_trace", ())))
+
+
+@dataclass(frozen=True)
+class AgentApproval:
+    """An independent agent's typed decision on one Candidate and rubric.
+
+    The reviewer invocation remains the authoritative model receipt.  This
+    smaller typed record binds either ``approve`` or ``request_changes`` to
+    the immutable inputs and makes that evidence independently addressable.
+    Only an affirmative decision is measurement authorization.
+    """
+
+    candidate: str
+    rubric: str
+    reviewer_run: str
+    rationale: str
+    decision: str = "approve"
+
+    def __post_init__(self) -> None:
+        for name in ("candidate", "rubric", "reviewer_run"):
+            if not isinstance(getattr(self, name), str) \
+                    or not _SHA256.fullmatch(getattr(self, name)):
+                raise ValueError(f"agent approval {name} must be an object reference")
+        if self.decision not in {"approve", "request_changes"}:
+            raise ValueError(
+                "agent approval decision must be approve or request_changes"
+            )
+        if not isinstance(self.rationale, str) or not self.rationale.strip():
+            raise ValueError("agent approval rationale is required")
+
+    def to_dict(self) -> dict:
+        return {
+            "schema_version": "1.0",
+            "candidate": self.candidate,
+            "rubric": self.rubric,
+            "reviewer_run": self.reviewer_run,
+            "decision": self.decision,
+            "rationale": self.rationale.strip(),
+        }
+
+    @classmethod
+    def from_dict(cls, value: dict) -> "AgentApproval":
+        require_keys(
+            value,
+            {"schema_version", "candidate", "rubric", "reviewer_run",
+             "decision", "rationale"},
+            "agent approval",
+        )
+        if value["schema_version"] != "1.0":
+            raise ValueError("unsupported agent approval contract")
+        return cls(
+            candidate=value["candidate"], rubric=value["rubric"],
+            reviewer_run=value["reviewer_run"], decision=value["decision"],
+            rationale=value["rationale"],
+        )
 
 
 def transition_allowed(current: Phase, target: Phase) -> bool:

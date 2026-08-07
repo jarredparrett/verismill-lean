@@ -35,3 +35,16 @@ _Avoid_: Combined score, release standing
 Reuse of an unchanged Suite Member whose exact Experiment, Candidate, and
 Artifact Attestation remain verified in a child Artifact Suite.
 _Avoid_: Skip, cached score
+
+**Measurement Authorization**:
+First-order evidence permitting the public blind panel to run for one exact
+Candidate and frozen rubric. It is either a Human Approval or an Independent
+Agent Approval; the evidence types remain distinct in storage and attestation.
+_Avoid_: Sign-off note, blended approval
+
+**Independent Agent Approval**:
+A typed, content-addressed authorization backed by an `approval_reviewer`
+AgentRun that saw the exact Candidate, artifact, and frozen rubric. Its agent
+principal and context are independent from builders, fixers, and development
+judges.
+_Avoid_: Human review, development selection, blind score

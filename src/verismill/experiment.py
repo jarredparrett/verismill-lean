@@ -22,7 +22,7 @@ from typing import Any, Callable
 from . import trace
 from .agents import (AgentTask, PanelExecutionError, PanelExecutionPolicy,
                      scoped_view)
-from .schema import (SCHEMA_VERSION, AgentRun, ModelConfig, Phase,
+from .schema import (SCHEMA_VERSION, AgentApproval, AgentRun, ModelConfig, Phase,
                      normalize_rubric, transition_allowed, validate_research,
                      validate_requirements, validate_rubric)
 from .store import ObjectStore, canonical_json, digest_bytes, refs_in
@@ -91,6 +91,7 @@ class Experiment:
             "evaluations": [],
             "panel_executions": [],
             "human_reviews": [],
+            "agent_approvals": [],
             "reports": [],
             "standing": None,
         }
@@ -406,7 +407,7 @@ class Experiment:
             measurement_status = "development_only"
             candidate_standing = None
 
-        return {
+        result = {
             "schema_version": "1.0",
             "artifact": artifact,
             "manifest": manifest,
@@ -429,6 +430,12 @@ class Experiment:
                 "verification": self.verify(),
             },
         }
+        # Artifact Attestation 1.0 is extension-compatible. Preserve the exact
+        # legacy shape for bundles created before agent approvals existed so
+        # immutable Suite Member attestations continue to replay byte-for-byte.
+        if "agent_approvals" in self.state:
+            result["attestation"]["agent_approval"] = self._agent_approval(candidate)
+        return result
 
     def record_development_round(self, *, candidate: str,
                                  judge_runs: list[str], findings: list[dict],
@@ -540,10 +547,178 @@ class Experiment:
         return ref
 
     def _human_approval(self, candidate: str) -> str | None:
-        for ref in reversed(self.state.get("human_reviews", [])):
-            review = self.store.read_json(ref)
-            if review.get("candidate") == candidate:
-                return ref if review.get("decision") == "approve" else None
+        authorization = self._measurement_authorization(candidate)
+        return (authorization[1]
+                if authorization and authorization[0] == "human_approval" else None)
+
+    def agent_approval_task(self, *, model: ModelConfig) -> AgentTask:
+        """Build the isolated task whose receipt can authorize measurement."""
+        if self.phase != Phase.AWAITING_BLIND_JUDGMENT:
+            raise ValueError("agent approval requires a selected development candidate")
+        candidate = self.state["refs"].get("current_candidate")
+        if candidate is None:
+            raise ValueError("agent approval requires a selected development candidate")
+        record = self.store.read_json(candidate)
+        rubric = record["rubric"]
+        return AgentTask(
+            role="approval_reviewer",
+            instructions=(
+                "Independently review the exact candidate artifact against the frozen "
+                "rubric. Approve only when it is ready to proceed to public blind "
+                "measurement. Return approve with a concrete rationale when ready; "
+                "otherwise return request_changes and explain why."
+            ),
+            inputs={
+                "artifact": self.store.read_bytes(record["artifact"]),
+                "candidate": self.store.read_bytes(candidate),
+                "rubric": self.store.read_bytes(rubric),
+            },
+            response_schema={
+                "decision": "approve | request_changes",
+                "rationale": "non-empty explanation grounded in the candidate and rubric",
+            },
+            model=model,
+        )
+
+    def _approval_contaminated_identities(self) -> tuple[set[str], set[str]]:
+        agents, contexts = set(), set()
+        for ref in [*self.state.get("inherited_agent_runs", []),
+                    *self.state.get("agent_runs", [])]:
+            run = self._run(ref)
+            if run.role in {"builder", "fixer", "development_judge"}:
+                agents.add(run.agent_id)
+                contexts.add(run.context_id)
+        return agents, contexts
+
+    def _validate_agent_approval(self, approval: AgentApproval) -> AgentRun:
+        if approval.candidate not in self.state.get("candidates", []):
+            raise ValueError("agent approval names no recorded candidate")
+        candidate = self.store.read_json(approval.candidate)
+        if approval.rubric != candidate.get("rubric"):
+            raise ValueError("agent approval rubric differs from its candidate")
+        if approval.reviewer_run not in self.state.get("agent_runs", []):
+            raise ValueError("agent approval reviewer receipt is not registered in this attempt")
+        reviewer = self._run(approval.reviewer_run, {"approval_reviewer"})
+        expected_inputs = {
+            "artifact": candidate["artifact"],
+            "candidate": approval.candidate,
+            "rubric": approval.rubric,
+        }
+        if reviewer.input_hashes != expected_inputs:
+            raise ValueError(
+                "agent approval reviewer receipt does not bind the exact artifact, "
+                "candidate, and frozen rubric"
+            )
+        if reviewer.parsed_output.get("decision") != approval.decision \
+                or reviewer.parsed_output.get("rationale") != approval.rationale:
+            raise ValueError("agent approval differs from its reviewer receipt")
+        contaminated_agents, contaminated_contexts = \
+            self._approval_contaminated_identities()
+        if reviewer.agent_id in contaminated_agents:
+            raise ValueError(
+                "agent approval reviewer principal is not independent from "
+                "builder, fixer, or development judge roles"
+            )
+        if reviewer.context_id in contaminated_contexts:
+            raise ValueError(
+                "agent approval reviewer context is not independent from "
+                "builder, fixer, or development judge roles"
+            )
+        return reviewer
+
+    def record_agent_approval(self, *, candidate: str, reviewer_run: str) -> str:
+        """Persist an independent agent decision about public measurement.
+
+        The registered ``approval_reviewer`` receipt must prove that it saw the
+        exact artifact, Candidate record, and frozen rubric. Its parsed decision
+        and rationale become typed evidence. Only ``approve`` authorizes a panel;
+        ``request_changes`` returns the experiment to development.
+        """
+        if self.phase != Phase.AWAITING_BLIND_JUDGMENT:
+            raise ValueError("agent approval requires a selected development candidate")
+        if candidate != self.state["refs"].get("current_candidate"):
+            raise ValueError("agent approval must address the current candidate")
+        if reviewer_run not in self.state.get("agent_runs", []):
+            raise ValueError("agent approval reviewer receipt is not registered in this attempt")
+        reviewer = self._run(reviewer_run, {"approval_reviewer"})
+        approval = AgentApproval(
+            candidate=candidate,
+            rubric=self.state["refs"]["rubric"],
+            reviewer_run=reviewer_run,
+            decision=reviewer.parsed_output.get("decision"),
+            rationale=reviewer.parsed_output.get("rationale"),
+        )
+        self._validate_agent_approval(approval)
+        ref = self.store.put_json(approval.to_dict())
+        if ref not in self.state.setdefault("agent_approvals", []):
+            self.state["agent_approvals"].append(ref)
+            self.bus.emit(
+                "L1", "approval_reviewer", "agent_approval",
+                inputs={"candidate": candidate, "rubric": approval.rubric,
+                        "reviewer_run": reviewer_run},
+                outputs={"agent_approval": ref},
+                verdicts={"decision": approval.decision,
+                          "agent_id": reviewer.agent_id,
+                          "context_id": reviewer.context_id},
+            )
+            self._save()
+        if approval.decision == "request_changes" \
+                and self.phase == Phase.AWAITING_BLIND_JUDGMENT:
+            self._transition(
+                Phase.CLIMBING,
+                reason=(
+                    "independent agent review requested candidate changes before "
+                    "blind measurement"
+                ),
+            )
+        return ref
+
+    def _agent_approval(self, candidate: str) -> str | None:
+        authorization = self._measurement_authorization(candidate)
+        return (authorization[1]
+                if authorization and authorization[0] == "agent_approval" else None)
+
+    def _measurement_authorization(self, candidate: str) -> tuple[str, str] | None:
+        """Return first-order authorization for this exact Candidate.
+
+        Human direction has durable precedence. Each human reviewer's latest
+        decision remains in force for these exact candidate bytes; one unresolved
+        ``request_changes`` veto cannot be bypassed by a later agent approval.
+        The same human can resolve that veto by approving, or development can
+        produce a new Candidate hash. With no unresolved human veto, the latest
+        human approval wins; otherwise the latest agent decision is considered.
+        """
+        events = self.replay()
+        human_decisions: dict[str, tuple[str, str, int]] = {}
+        for position, event in enumerate(events):
+            if event["event_type"] != "human_review" \
+                    or event["input_hashes"].get("candidate") != candidate:
+                continue
+            review_ref = event["output_refs"].get("human_review")
+            review = self.store.read_json(review_ref)
+            human_decisions[review["reviewer_id"]] = (
+                review["decision"], review_ref, position,
+            )
+        if any(decision == "request_changes"
+               for decision, _, _ in human_decisions.values()):
+            return None
+        human_approvals = [
+            (position, review_ref)
+            for decision, review_ref, position in human_decisions.values()
+            if decision == "approve"
+        ]
+        if human_approvals:
+            _, review_ref = max(human_approvals)
+            return "human_approval", review_ref
+
+        for event in reversed(events):
+            if event["event_type"] == "agent_approval" \
+                    and event["input_hashes"].get("candidate") == candidate:
+                approval_ref = event["output_refs"].get("agent_approval")
+                approval = AgentApproval.from_dict(self.store.read_json(approval_ref))
+                self._validate_agent_approval(approval)
+                return (("agent_approval", approval_ref)
+                        if approval.decision == "approve" else None)
         return None
 
     def record_tell(self, *, tell_class: str, path: str, rationale: str,
@@ -747,9 +922,12 @@ class Experiment:
         if len(backends) != len(models):
             raise ValueError("one backend is required for every blind judge model")
         candidate = self.state["refs"].get("current_candidate")
-        if candidate is None or self._human_approval(candidate) is None:
+        authorization = (self._measurement_authorization(candidate)
+                         if candidate is not None else None)
+        if candidate is None or authorization is None:
             raise ValueError(
-                "public blind measurement requires human approval of the exact candidate"
+                "public blind measurement requires human approval or independent "
+                "agent approval of the exact candidate"
             )
         tasks = self.absolute_judge_tasks(
             class_name=class_name, persona=persona, models=models)
@@ -838,6 +1016,10 @@ class Experiment:
             "usage": {"total_tokens": token_total},
             "judge_runs": judge_runs,
             "status": status,
+            "authorization": {
+                "evidence_type": authorization[0],
+                "approval_ref": authorization[1],
+            },
         }
         execution_ref = self._record_panel_execution(record)
         if status != "complete":
@@ -856,6 +1038,11 @@ class Experiment:
             if run.role in {"builder", "fixer", "development_judge"}:
                 agents.add(run.agent_id)
                 contexts.add(run.context_id)
+        for approval_ref in self.state.get("agent_approvals", []):
+            approval = AgentApproval.from_dict(self.store.read_json(approval_ref))
+            reviewer = self._run(approval.reviewer_run, {"approval_reviewer"})
+            agents.add(reviewer.agent_id)
+            contexts.add(reviewer.context_id)
         prior_blind_refs = {
             run_ref
             for evaluation_ref in self.state["evaluations"]
@@ -1144,6 +1331,9 @@ class Experiment:
             "human_reviews": [
                 self.store.read_json(ref) for ref in self.state.get("human_reviews", [])
             ],
+            "agent_approvals": [
+                self.store.read_json(ref) for ref in self.state.get("agent_approvals", [])
+            ],
             "atlas_summary": self._atlas_summary(),
             "standing": self.state["standing"],
             "measurement": self._measurement_status(),
@@ -1348,6 +1538,21 @@ class Experiment:
                 failures.append(f"invalid human review {review_ref}: {exc}")
             if review_ref not in event_human_reviews:
                 failures.append(f"human review has no bus event: {review_ref}")
+        event_agent_approvals = {
+            event["output_refs"].get("agent_approval") for event in events
+            if event["event_type"] == "agent_approval"
+        }
+        for approval_ref in self.state.get("agent_approvals", []):
+            try:
+                approval = AgentApproval.from_dict(
+                    self.store.read_json(approval_ref)
+                )
+                self._validate_agent_approval(approval)
+            except (OSError, ValueError, KeyError, TypeError,
+                    json.JSONDecodeError) as exc:
+                failures.append(f"invalid agent approval {approval_ref}: {exc}")
+            if approval_ref not in event_agent_approvals:
+                failures.append(f"agent approval has no bus event: {approval_ref}")
         if self.state.get("standing"):
             evaluation_ref = self.state["standing"].get("evaluation")
             if evaluation_ref not in self.state["evaluations"]:
@@ -1456,6 +1661,32 @@ class Experiment:
             raise ValueError("panel execution names no recorded candidate")
         if record["rubric"] != self.store.read_json(record["candidate"])["rubric"]:
             raise ValueError("panel execution rubric differs from its candidate")
+        authorization = record.get("authorization")
+        if authorization is not None:
+            if not isinstance(authorization, dict) or set(authorization) != {
+                    "evidence_type", "approval_ref"}:
+                raise ValueError("panel execution authorization is invalid")
+            evidence_type = authorization["evidence_type"]
+            approval_ref = authorization["approval_ref"]
+            if evidence_type == "human_approval":
+                if approval_ref not in self.state.get("human_reviews", []):
+                    raise ValueError("panel execution human approval is not registered")
+                approval = self.store.read_json(approval_ref)
+                if approval.get("decision") != "approve" \
+                        or approval.get("candidate") != record["candidate"] \
+                        or approval.get("rubric") != record["rubric"]:
+                    raise ValueError("panel execution human approval lineage differs")
+            elif evidence_type == "agent_approval":
+                if approval_ref not in self.state.get("agent_approvals", []):
+                    raise ValueError("panel execution agent approval is not registered")
+                approval = AgentApproval.from_dict(self.store.read_json(approval_ref))
+                self._validate_agent_approval(approval)
+                if approval.decision != "approve" \
+                        or approval.candidate != record["candidate"] \
+                        or approval.rubric != record["rubric"]:
+                    raise ValueError("panel execution agent approval lineage differs")
+            else:
+                raise ValueError("panel execution authorization evidence type is invalid")
         policy = PanelExecutionPolicy(**record["policy"])
         arms = record["arms"]
         if not isinstance(arms, list) or not arms:
@@ -1583,6 +1814,18 @@ class Experiment:
                         f"  - {feedback['observation']} → {feedback['direction']} "
                         f"(`{feedback['requirement']}`)"
                     )
+            lines.append("")
+        if view.get("agent_approvals"):
+            lines += ["## Independent agent reviews", ""]
+            for item in view["agent_approvals"]:
+                reviewer = self._run(item["reviewer_run"], {"approval_reviewer"})
+                lines.append(
+                    f"- **{item['decision']}** by agent principal "
+                    f"`{reviewer.agent_id}` in "
+                    f"context `{reviewer.context_id}` for Candidate "
+                    f"`{item['candidate']}` against rubric `{item['rubric']}`"
+                )
+                lines.append(f"  - {item['rationale']}")
             lines.append("")
         if view["evaluations"]:
             lines += ["## Blind evaluations", ""]

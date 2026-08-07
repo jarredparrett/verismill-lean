@@ -79,7 +79,8 @@ def prepare_experiment(root: Path, name: str) -> tuple[Experiment, str]:
     return exp, candidate
 
 
-def seal_for_measurement(exp: Experiment, candidate: str, name: str) -> None:
+def seal_for_measurement(exp: Experiment, candidate: str, name: str, *,
+                         agent_approval: bool = False) -> None:
     development = exp.record_agent_run(receipt("development_judge", name))
     exp.record_development_round(
         candidate=candidate,
@@ -88,12 +89,25 @@ def seal_for_measurement(exp: Experiment, candidate: str, name: str) -> None:
         decision="select",
         score={"capture": 85},
     )
-    exp.record_human_review(
-        candidate=candidate,
-        reviewer_id=f"reviewer-{name}",
-        decision="approve",
-        feedback=[],
-    )
+    if agent_approval:
+        task = exp.agent_approval_task(
+            model=ModelConfig(provider="test", model=f"approval-{name}"))
+        parsed = {"decision": "approve", "rationale": "Ready for blind measurement."}
+        reviewer = exp.record_agent_run(AgentRun(
+            run_id=f"approval-{name}", agent_id=f"approval-agent-{name}",
+            context_id=f"approval-context-{name}", role=task.role,
+            model=task.model, prompt_hash=task.prompt_hash(),
+            input_hashes=task.input_hashes(), raw_response=json.dumps(parsed),
+            parsed_output=parsed,
+        ))
+        exp.record_agent_approval(candidate=candidate, reviewer_run=reviewer)
+    else:
+        exp.record_human_review(
+            candidate=candidate,
+            reviewer_id=f"reviewer-{name}",
+            decision="approve",
+            feedback=[],
+        )
 
 
 def measure_directly(exp: Experiment, candidate: str, name: str, score: int) -> None:
@@ -192,7 +206,7 @@ def test_suite_creates_and_measures_member_through_public_experiment_api(tmp_pat
             "change": "added source-calibrated capture",
         },
     )
-    seal_for_measurement(exp, candidate, "created")
+    seal_for_measurement(exp, candidate, "created", agent_approval=True)
     models = [ModelConfig(provider="test", model=f"panel-{i}") for i in (1, 2, 3)]
 
     class Backend:
@@ -224,6 +238,9 @@ def test_suite_creates_and_measures_member_through_public_experiment_api(tmp_pat
     attestation = suite.attest()
     assert attestation["qualification"]["status"] == "accepted"
     assert attestation["qualification"]["release_ready"] is True
+    result = suite.artifact_results()["night_log"]
+    assert result["attestation"]["human_approval"] is None
+    assert result["attestation"]["agent_approval"] is not None
     assert suite.verify()["ok"]
 
 
@@ -253,6 +270,28 @@ def test_suite_is_portable_and_detects_member_lineage_mutation(tmp_path):
     verification = relocated.verify()
     assert not verification["ok"]
     assert any("ledger" in failure for failure in verification["failures"])
+
+
+def test_suite_verifies_legacy_member_attestation_without_agent_approval_field(
+        tmp_path):
+    """suite.agent-approval-backcompat: pre-agent-approval Experiment and
+    Member Attestation shapes remain stable when replayed by current code."""
+    exp, candidate = prepare_experiment(tmp_path / "legacy", "legacy_log")
+    state = json.loads(exp.state_path.read_text())
+    state.pop("agent_approvals")
+    exp.state_path.write_text(json.dumps(state))
+    legacy = Experiment.open(exp.root, clock=lambda: 1_700_000_000)
+
+    suite = ArtifactSuite.create(
+        tmp_path / "legacy-suite", request="Legacy archive",
+        suite_id="legacy_archive", clock=lambda: 1_700_000_000,
+    )
+    suite.link_experiment("legacy_log", legacy, candidate=candidate)
+    member = suite.store.read_json(
+        suite.state["members"]["legacy_log"]["attestation"]
+    )
+    assert "agent_approval" not in member["artifact_attestation"]
+    assert suite.verify()["ok"]
 
 
 def test_attested_suite_and_selected_members_are_immutable(tmp_path):

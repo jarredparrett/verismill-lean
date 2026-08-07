@@ -386,6 +386,23 @@ def _ip(rng: random.Random) -> str:
             f"{rng.randint(0, 255)}.{rng.randint(1, 254)}")
 
 
+def export_created(model: dict) -> str:
+    """Derive the born-digital file date from the completed e-sign envelope.
+
+    A sealed electronic lease is created when its last signer completes the
+    envelope. Sampling this date independently can put the PDF months after
+    its own completion certificate or even in the future.
+    """
+    signed = [item["signed_at"] for item in model["esign"]["signers"]]
+    if not signed:
+        raise ValueError("lease e-sign envelope requires at least one signer")
+    completed = max(
+        _dt.datetime.strptime(value, "%B %d, %Y at %H:%M ET")
+        for value in signed
+    )
+    return completed.strftime("%Y-%m-%d %H:%M:00")
+
+
 def _person_initials(name: str) -> str:
     return "".join(w[0] for w in name.split()[:2]).upper()
 
@@ -960,7 +977,7 @@ def _certificate_flowables(esign: dict, title: str) -> list:
             f"Signed {s['signed_at']} &nbsp;·&nbsp; IP {s['ip']}", _CERT))
     out.append(Spacer(1, 8))
     out.append(Paragraph(
-        f"This record was created and sealed by {esign['platform']} in "
+        f"This record was completed through {esign['platform']} in "
         f"accordance with the New Jersey Uniform Electronic Transactions Act, "
         f"N.J.S.A. 12A:12-1 et seq. Under that Act an electronic signature has "
         f"the same legal effect as a handwritten signature. Each signer adopted "

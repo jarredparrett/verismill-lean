@@ -17,7 +17,7 @@ import random
 import pypdfium2 as pdfium
 import pytest
 
-from mattermill import lease_nj as L
+from mattermill import lease_nj as L, registry
 
 META = {"producer": "Applied Epic Forms", "creator": "Adobe PDF Library 15.0",
         "created": "2025-08-14 10:12:03", "modified": None}
@@ -368,6 +368,24 @@ def test_metadata_born_digital(pdf):
     # producer is the management system's, not reportlab's default
     assert b"ReportLab" not in re.search(rb"/Producer\s*\((?:\\.|[^()\\])*\)",
                                          pdf).group(0)
+
+
+def test_registry_file_date_follows_completed_esign_envelope():
+    """lease.file-date-coherence: the born-digital PDF date must derive from
+    the lease's signing event, never from an independent capture-window draw."""
+    _pdf, manifest = registry.emit(
+        "lease_nj",
+        seed=18420728,
+        pins={
+            "lease_type": "new", "monthly_rent": 2800,
+            "deposit_months": 1.5, "building_year": 1910,
+            "rent_controlled": True, "term_start": "2026-01-01",
+            "pets": False, "seniors": False,
+        },
+    )
+    assert manifest["metadata"]["created"].startswith("2026-01-01 ")
+    assert manifest["metadata"]["creator"] == L.ESIGN_PLATFORM
+    assert b"created and sealed by Riverline eSign" not in _pdf
 
 
 def test_seeded_everywhere(model):

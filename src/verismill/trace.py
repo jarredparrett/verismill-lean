@@ -71,6 +71,16 @@ class TraceBus:
         outputs: dict | None = None,
         verdicts: dict | None = None,
     ) -> dict:
+        current = GENESIS
+        if self.path.exists():
+            with self.path.open() as existing:
+                for line in existing:
+                    if line.strip():
+                        current = json.loads(line)["event_hash"]
+        if current != self._prev:
+            raise RuntimeError(
+                "stale TraceBus handle: another writer advanced the event chain"
+            )
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self.clock()))
         payload = {
             "ts": ts,

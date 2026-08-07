@@ -94,6 +94,26 @@ def prepared(tmp_path, rubric_value=None) -> Experiment:
     return exp
 
 
+def test_stale_handle_cannot_overwrite_fresh_experiment_state(tmp_path):
+    """experiment.single-writer: a stale report handle cannot erase a fresh
+    transition, evaluation, or other state written through another handle."""
+    root = tmp_path / "stale-handle"
+    fresh = Experiment.create(
+        root, request="Forge a stable record", experiment_id="stable_record",
+        clock=lambda: 1_700_000_000,
+    )
+    stale = Experiment.open(root, clock=lambda: 1_700_000_000)
+    fresh.begin_preparation()
+
+    with pytest.raises(RuntimeError, match="stale Experiment handle"):
+        stale.write_report(tmp_path / "stale-report.md")
+
+    reopened = Experiment.open(root, clock=lambda: 1_700_000_000)
+    assert reopened.phase == Phase.PREPARING
+    assert reopened.state["reports"] == []
+    assert reopened.verify()["ok"]
+
+
 def candidate(exp: Experiment, n: int = 1, *, model: str = "model-a",
               class_name: str = "test_class",
               mattermill: str = "test-version") -> tuple[str, str]:
